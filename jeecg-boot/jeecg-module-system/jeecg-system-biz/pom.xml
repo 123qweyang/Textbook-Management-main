@@ -1,0 +1,72 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+		 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<parent>
+		<groupId>org.jeecgframework.boot3</groupId>
+		<artifactId>jeecg-module-system</artifactId>
+		<version>3.9.0</version>
+	</parent>
+	<modelVersion>4.0.0</modelVersion>
+
+	<artifactId>jeecg-system-biz</artifactId>
+
+	<dependencies>
+		<dependency>
+			<groupId>org.jeecgframework.boot3</groupId>
+			<artifactId>jeecg-system-local-api</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.hibernate</groupId>
+			<artifactId>hibernate-core</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.jeecgframework.boot3</groupId>
+			<artifactId>hibernate-re</artifactId>
+		</dependency>
+
+		<!-- AI大模型管理-->
+		<dependency>
+			<groupId>org.jeecgframework.boot3</groupId>
+			<artifactId>jeecg-boot-module-airag</artifactId>
+			<version>${jeecgboot.version}</version>
+		</dependency> 
+		<!-- 企业微信/钉钉 api -->
+		<dependency>
+			<groupId>org.jeecgframework</groupId>
+			<artifactId>weixin4j</artifactId>
+		</dependency>
+		<!-- 积木报表 -->
+		<dependency>
+			<groupId>org.jeecgframework.jimureport</groupId>
+			<artifactId>jimureport-spring-boot3-starter</artifactId>
+		</dependency>
+		<!-- 积木报表 csv excel ES JSON mongodbSQL redis支持包
+		<dependency>
+			<groupId>org.jeecgframework.jimureport</groupId>
+			<artifactId>jimureport-nosql-starter</artifactId>
+		</dependency>-->
+		<!-- 后台导出接口Echart图表支持包，按需引入 
+		<dependency>
+			<groupId>org.jeecgframework.jimureport</groupId>
+			<artifactId>jimureport-echarts-starter</artifactId>
+		</dependency>-->
+        <!-- 积木BI -->
+        <dependency>
+            <groupId>org.jeecgframework.jimureport</groupId>
+            <artifactId>jimubi-spring-boot3-starter</artifactId>
+        </dependency>
+		<!-- AI 大模型管理 -->
+		<dependency>
+			<groupId>org.jeecgframework.boot3</groupId>
+			<artifactId>jeecg-boot-module-airag</artifactId>
+			<version>${jeecgboot.version}</version>
+		</dependency>
+<!--		&lt;!&ndash; 教材管理模块 &ndash;&gt;-->
+<!--		<dependency>-->
+<!--			<groupId>org.jeecgframework.boot3</groupId>-->
+<!--			<artifactId>jeecg-module-generate</artifactId>-->
+<!--			<version>${jeecgboot.version}</version>-->
+<!--		</dependency>-->
+	</dependencies>
+	
+</project>

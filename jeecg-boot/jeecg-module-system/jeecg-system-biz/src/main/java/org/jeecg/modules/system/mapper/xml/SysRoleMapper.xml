@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.jeecg.modules.system.mapper.SysRoleMapper">
+
+    <select id="listAllSysRole" resultType="org.jeecg.modules.system.entity.SysRole">
+        SELECT * from sys_role
+        WHERE 1=1
+        <if test="role.roleName!='' and role.roleName!=null">
+            <bind name="bindKeyword" value="'%'+role.roleName+'%'"/>
+            AND role_name like #{bindKeyword}
+        </if>
+        <if test="role.roleCode!='' and role.roleCode!=null">
+            <choose>
+                <when test="role.roleCode.indexOf(',') != -1">
+                    AND role_code in
+                    <foreach item="item" index="index" collection="role.roleCode.split(',')" open="(" separator="," close=")">
+                        #{item}
+                    </foreach>
+                </when>
+                <otherwise>
+                    <bind name="bindRoleCode" value="'%'+role.roleCode+'%'"/>
+                    AND role_code like #{bindRoleCode}
+                </otherwise>
+            </choose>
+        </if>
+        <!--增加id查询 for:【issues/7948】角色解决根据id查询回显不对-->
+        <if test="role.id!='' and role.id!=null">
+            <choose>
+                <when test="role.id.indexOf(',') != -1">
+                    AND id in
+                    <foreach item="item" index="index" collection="role.id.split(',')" open="(" separator="," close=")">
+                        #{item}
+                    </foreach>
+                </when>
+                <otherwise>
+                    AND id = #{role.id}
+                </otherwise>
+            </choose>
+        </if>
+       order by create_time desc
+    </select>
+   
+
+    <select id="getRoleNoTenant" resultType="org.jeecg.modules.system.entity.SysRole">
+        SELECT * from sys_role
+        WHERE role_code = #{roleCode}
+    </select>
+
+    <!-- 根据用户id查询用户拥有的角色 -->
+    <select id="getRoleCodeListByUserId" resultType="org.jeecg.modules.system.entity.SysRole">
+        SELECT id, role_code from sys_role
+        WHERE id in (SELECT role_id from sys_user_role WHERE user_id = #{userId})
+        <if test="tenantId != null">
+            AND tenant_id = #{tenantId}
+        </if>
+    </select>
+    
+    <!--根据用户id获取角色信息-->
+    <select id="getUserRoleByUserId" resultType="org.jeecg.modules.system.vo.SysUserPositionVo">
+        SELECT sr.role_name as name,sur.user_id FROM sys_role sr
+        RIGHT JOIN sys_user_role sur on sur.role_id = sr.id
+        WHERE sur.user_id IN
+        <foreach collection="userList" index="index" item="user" open="(" separator="," close=")">
+            #{user.id}
+        </foreach>
+    </select>
+</mapper>

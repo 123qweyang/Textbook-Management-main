@@ -1,0 +1,8 @@
+*.js linguist-language=Java
+*.css linguist-language=Java
+*.ts linguist-language=vue
+*.html linguist-language=vue
+*.sql linguist-language=Java
+*.ftl linguist-language=Java
+jeecg-system-start-3.9.0.jar filter=lfs diff=lfs merge=lfs -text
+jeecg-boot/jeecg-module-system/jeecg-system-start/target/jeecg-system-start-3.9.0.jar filter=lfs diff=lfs merge=lfs -text

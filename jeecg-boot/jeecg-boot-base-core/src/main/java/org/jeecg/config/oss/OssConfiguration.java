@@ -1,0 +1,40 @@
+package org.jeecg.config.oss;
+
+import jakarta.annotation.PostConstruct;
+import org.jeecg.common.util.oss.OssBootUtil;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
+
+/**
+ * 云存储 配置
+ * @author: jeecg-boot
+ */
+@Lazy(false)
+@Configuration
+@ConditionalOnProperty(prefix = "jeecg.oss", name = "endpoint")
+public class OssConfiguration {
+
+    @Value("${jeecg.oss.endpoint}")
+    private String endpoint;
+    @Value("${jeecg.oss.accessKey}")
+    private String accessKeyId;
+    @Value("${jeecg.oss.secretKey}")
+    private String accessKeySecret;
+    @Value("${jeecg.oss.bucketName}")
+    private String bucketName;
+    @Value("${jeecg.oss.staticDomain:}")
+    private String staticDomain;
+
+
+    @PostConstruct
+    public void initOssBootConfiguration() {
+        OssBootUtil.setEndPoint(endpoint);
+        OssBootUtil.setAccessKeyId(accessKeyId);
+        OssBootUtil.setAccessKeySecret(accessKeySecret);
+        OssBootUtil.setBucketName(bucketName);
+        OssBootUtil.setStaticDomain(staticDomain);
+    }
+}

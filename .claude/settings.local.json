@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"C:\\\\Users\\\\Zhang\\\\.claude\\\\projects\\\\c--Users-Zhang-Desktop-TextBook-Management-Textbook-Management-main\\\\memory\\\\\")",
+      "Read(//c/Users/Zhang/.claude/projects/c--Users-Zhang-Desktop-TextBook-Management-Textbook-Management-main/**)",
+      "Bash(cd \"c:/Users/Zhang/Desktop/TextBook-Management/Textbook-Management-main/jeecg-boot/jeecg-module-generate/src/main/java/org/jeecg/modules/demo/zbu/controller\" && sed -i '999,1008d' TTextbookSelectionController.java && echo \"Step 1 done: deleted lines 999-1008\")",
+      "Bash(cd \"c:/Users/Zhang/Desktop/TextBook-Management/Textbook-Management-main/jeecg-boot/jeecg-module-generate/src/main/java/org/jeecg/modules/demo/zbu/controller\" && sed -i '1012,1021d' TTextbookSelectionController.java && echo \"Step 2 done: deleted old allFailMsgList construction \\(lines 1012-1021\\)\")",
+      "Bash(python3)",
+      "Bash(mvn compile *)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\Zhang\\Desktop\\TextBook-Management\\Textbook-Management-main\\jeecg-boot\\jeecg-module-generate\\src\\main\\java\\org\\jeecg\\modules\\demo\\zbu\\controller"
+    ]
+  }
+}

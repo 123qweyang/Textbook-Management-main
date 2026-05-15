@@ -1,0 +1,151 @@
+<template>
+  <div ref="tableFooter">
+    <Table
+      v-if="summaryFunc || summaryData"
+      :showHeader="false"
+      :bordered="bordered"
+      :pagination="false"
+      :dataSource="getDataSource"
+      :rowKey="(r) => r[rowKey]"
+      :columns="getColumns"
+      tableLayout="fixed"
+      :scroll="scroll"
+    />
+  </div>
+</template>
+<script lang="ts">
+  import type { PropType } from 'vue';
+  import { defineComponent, unref, computed, toRaw, onMounted, onUnmounted, ref } from 'vue';
+  import { Table } from 'ant-design-vue';
+  import { cloneDeep } from 'lodash-es';
+  import { isFunction } from '/@/utils/is';
+  import type { BasicColumn } from '../types/table';
+  import { INDEX_COLUMN_FLAG } from '../const';
+  import { propTypes } from '/@/utils/propTypes';
+  import { useTableContext } from '../hooks/useTableContext';
+
+  const SUMMARY_ROW_KEY = '_row';
+  const SUMMARY_INDEX_KEY = '_index';
+  export default defineComponent({
+    name: 'BasicTableFooter',
+    components: { Table },
+    props: {
+      bordered: {
+        type: Boolean,
+        default: false,
+      },
+      summaryFunc: {
+        type: Function as PropType<Fn>,
+      },
+      summaryData: {
+        type: Array as PropType<Recordable[]>,
+      },
+      scroll: {
+        type: Object as PropType<Recordable>,
+      },
+      rowKey: propTypes.string.def('key'),
+      // 是否有展开列
+      hasExpandedRow: propTypes.bool,
+    },
+    setup(props) {
+      const table = useTableContext();
+      const getColumnsRef = table.getColumnsRef();
+      const tableFooter = ref<any>(null);
+      const getDataSource = computed((): Recordable[] => {
+        const { summaryFunc, summaryData } = props;
+        if (summaryData?.length) {
+          summaryData.forEach((item, i) => (item[props.rowKey] = `${i}`));
+          return summaryData;
+        }
+        if (!isFunction(summaryFunc)) {
+          return [];
+        }
+        // 代码逻辑说明: 【QQYUN-8172】可编辑单元格编辑完以后不更新合计值
+        let dataSource = cloneDeep(unref(table.getDataSource()));
+        dataSource = summaryFunc(dataSource);
+        dataSource.forEach((item, i) => {
+          item[props.rowKey] = `${i}`;
+        });
+        return dataSource;
+      });
+
+      const getColumns = computed(() => {
+        const dataSource = unref(getDataSource);
+        // 代码逻辑说明: 【issues/8502】权限列不显示后，表尾行合计栏还显示导致对不齐
+        const allColumns = unref(getColumnsRef);
+        let columns: BasicColumn[] = cloneDeep(table.getColumns({ ignoreAuth: true, ignoreIfShow: true }));
+        // 代码逻辑说明: 【issues/638】表格合计，列自定义隐藏或展示时，合计栏会错位
+        columns = columns.filter((item) => !item.defaultHidden);
+        const index = columns.findIndex((item) => item.flag === INDEX_COLUMN_FLAG);
+        const hasRowSummary = dataSource.some((item) => Reflect.has(item, SUMMARY_ROW_KEY));
+        const hasIndexSummary = dataSource.some((item) => Reflect.has(item, SUMMARY_INDEX_KEY));
+
+        // 是否有序号列
+        let hasIndexCol = false;
+        // 是否有选择列
+        let hasSelection = table.getRowSelection() && hasRowSummary
+
+        if (index !== -1) {
+          if (hasIndexSummary) {
+            hasIndexCol = true;
+            columns[index].customRender = ({ record }) => record[SUMMARY_INDEX_KEY];
+            columns[index].ellipsis = false;
+          } else {
+            Reflect.deleteProperty(columns[index], 'customRender');
+          }
+        }
+
+        if (hasSelection) {
+          // 代码逻辑说明: 【issues/776】显示100条/页，复选框只能显示3个的问题(fixed也有可能设置true)
+          const isFixed = columns.some((col) => col.fixed === 'left' || col.fixed === true);
+          columns.unshift({
+            width: 50,
+            title: 'selection',
+            key: 'selectionKey',
+            align: 'center',
+            ...(isFixed ? { fixed: 'left' } : {}),
+            customRender: ({ record }) => hasIndexCol ? '' : record[SUMMARY_ROW_KEY],
+          });
+        }
+
+        if (props.hasExpandedRow) {
+          const isFixed = columns.some((col) => col.fixed === 'left');
+          columns.unshift({
+            width: 50,
+            title: 'expandedRow',
+            key: 'expandedRowKey',
+            align: 'center',
+            ...(isFixed ? { fixed: 'left' } : {}),
+            customRender: () => '',
+          });
+        }
+        return columns;
+      });
+      // 代码逻辑说明: 【issues/7773】合计没有跟着左右滚动条滚动
+      let mainTableBody, footerTable;
+      const handleSroll = () => {
+        const scrollLeft = mainTableBody.scrollLeft;
+        footerTable.scrollLeft = scrollLeft;
+      };
+      onMounted(() => {
+        setTimeout(() => {
+          mainTableBody = tableFooter.value?.parentNode?.parentNode?.querySelector('.ant-table-body');
+          footerTable = tableFooter.value?.querySelector('.ant-table-body');
+          mainTableBody?.addEventListener('scroll', handleSroll, false);
+        }, 1e3);
+      });
+      onUnmounted(() => {
+        mainTableBody?.addEventListener('scroll', handleSroll);
+      });
+      return { getColumns, getDataSource, tableFooter };
+    },
+  });
+</script>
+<style lang="less" scoped>
+  // 代码逻辑说明: 【issues/776】显示100条/页，复选框只能显示3个的问题(隐藏合计的滚动条)
+  .ant-table-wrapper {
+    :deep(.ant-table-body) {
+      overflow-x: hidden !important;
+    }
+  }
+</style>
