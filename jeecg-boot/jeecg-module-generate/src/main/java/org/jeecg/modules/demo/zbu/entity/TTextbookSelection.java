@@ -39,7 +39,8 @@ public class TTextbookSelection implements Serializable {
 	@Schema(description = "主键")
 	private java.lang.String id;
 	/** 专业 */
-	@Excel(name = "专业", width = 15)
+	@Excel(name = "专业", width = 15, dictTable = "t_major", dicCode = "id", dicText = "major_name")
+	@Dict(dictTable = "t_major", dicCode = "id", dicText = "major_name")
 	@Schema(description = "专业")
 	private java.lang.String majorId;
 	/** 原始专业输入（用于导入时存储原始文本，如 "24汉本1、2、3、4班；22土木"） */

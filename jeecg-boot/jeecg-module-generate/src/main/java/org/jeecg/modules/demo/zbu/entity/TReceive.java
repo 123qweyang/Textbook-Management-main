@@ -46,8 +46,6 @@ public class TReceive implements Serializable {
     @Schema(description = "学生姓名")
     private java.lang.String studentName;
     /**教材*/
-    @Excel(name = "教材", width = 15, dictTable = "t_subscription", dicCode = "id", dicText = "textbook_id")
-    @Dict(dictTable = "t_subscription", dicCode = "id", dicText = "textbook_id")
     @Schema(description = "教材")
     private java.lang.String subscriptionId;
     /**教材名称*/
