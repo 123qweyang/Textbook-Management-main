@@ -86,7 +86,28 @@ export const searchFormSchema: FormSchema[] = [
   {
     label: "学年",
     field: 'schoolYear',
-    component: 'Input',
+    component: 'JDictSelectTag',
+    defaultValue: (() => {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      return (currentMonth < 9) ? `${currentYear - 1}-${currentYear}` : `${currentYear}-${currentYear + 1}`;
+    })(),
+    componentProps: () => {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      // 9月之前（1-8月）：最新一届是去年；9月之后：最新一届是本年
+      const latestGradeYear = currentMonth < 9 ? currentYear - 1 : currentYear;
+      const options: { label: string; value: string }[] = [];
+      for (let i = 0; i <= 3; i++) {
+        const year = latestGradeYear - i;
+        if (year >= 2020) {
+          options.push({ label: `${year}-${year + 1}`, value: `${year}-${year + 1}` });
+        }
+      }
+      return { options, placeholder: '请选择学年' };
+    },
   },
   {
     label: "学期",
@@ -158,10 +179,24 @@ export const formSchema: FormSchema[] = [
   {
     label: '学年',
     field: 'schoolYear',
-    component: 'Input',
+    component: 'JDictSelectTag',
+    componentProps: () => {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      const latestGradeYear = currentMonth < 9 ? currentYear - 1 : currentYear;
+      const options: { label: string; value: string }[] = [];
+      for (let i = 0; i <= 3; i++) {
+        const year = latestGradeYear - i;
+        if (year >= 2020) {
+          options.push({ label: `${year}-${year + 1}`, value: `${year}-${year + 1}` });
+        }
+      }
+      return { options, placeholder: '请选择学年' };
+    },
     dynamicRules: ({ model, schema }) => {
       return [
-        { required: true, message: '请输入学年!' },
+        { required: true, message: '请选择学年!' },
       ];
     },
   },

@@ -56,6 +56,13 @@
   const checkedKeys = ref<Array<string | number>>([]);
   const userStore = useUserStore();
   const { createMessage } = useMessage();
+
+  // 计算当前学年，默认查询时使用
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const defaultSchoolYear = (currentMonth < 9) ? `${currentYear - 1}-${currentYear}` : `${currentYear}-${currentYear + 1}`;
+
   //注册model
   const [registerModal, {openModal}] = useModal();
   //注册table数据
@@ -87,7 +94,12 @@
                   }
                 }
               }
-              return Object.assign(params, queryParam);
+              const merged = Object.assign({}, params, queryParam);
+              // 页面首次加载时，默认查询当前学年
+              if (!merged.schoolYear) {
+                merged.schoolYear = defaultSchoolYear;
+              }
+              return merged;
             },
       },
        exportConfig: {
