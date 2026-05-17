@@ -11,8 +11,6 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 导入错误导出工具：将错误信息生成 Excel 文件写入 upload 目录，返回下载 URL
@@ -21,14 +19,14 @@ import java.util.regex.Pattern;
 public class ImportErrorExportUtil {
 
     private static final String ERROR_DIR = "import_error";
-    private static final Pattern ROW_PATTERN = Pattern.compile("^第(\\d+)行[：:]");
 
     /**
      * 生成错误 Excel 并返回带有 code=201 的 Result
      *
-     * @param errorMessages  错误信息列表（如 "第2行：学号为空"）
+     * @param errorMessages  错误信息列表（如 "第2行，学号为空，请检查。"）
      * @param successMsg     成功摘要（如 "成功导入10条有效数据"）
      * @param uploadPath     上传根目录（取自配置 jeecg.path.upload）
+     * @param tableName      表名（用于生成文件名）
      * @return Result (code=201) 包含 fileUrl 和 fileName
      */
     public static Result<?> buildErrorResult(
@@ -42,7 +40,6 @@ public class ImportErrorExportUtil {
         }
 
         try {
-            // 生成带日期的子目录
             String dateStr = new SimpleDateFormat("yyyyMMdd").format(new Date());
             String timeStr = new SimpleDateFormat("HHmmss").format(new Date());
             String dirPath = uploadPath + File.separator + ERROR_DIR + File.separator + dateStr;
@@ -51,11 +48,9 @@ public class ImportErrorExportUtil {
                 dir.mkdirs();
             }
 
-            // 生成含表名和时间的文件名
             String fileName = tableName + "_导入错误_" + dateStr + "_" + timeStr + ".xlsx";
             String filePath = dirPath + File.separator + fileName;
 
-            // 创建 Excel
             try (Workbook wb = new XSSFWorkbook()) {
                 Sheet sheet = wb.createSheet("导入错误详情");
 
@@ -73,14 +68,11 @@ public class ImportErrorExportUtil {
                 headerStyle.setBorderRight(BorderStyle.THIN);
                 headerStyle.setAlignment(HorizontalAlignment.CENTER);
 
-                // 表头
+                // 单列表头
                 Row headerRow = sheet.createRow(0);
-                String[] headers = {"行号", "错误描述"};
-                for (int i = 0; i < headers.length; i++) {
-                    Cell cell = headerRow.createCell(i);
-                    cell.setCellValue(headers[i]);
-                    cell.setCellStyle(headerStyle);
-                }
+                Cell headerCell = headerRow.createCell(0);
+                headerCell.setCellValue("错误原因");
+                headerCell.setCellStyle(headerStyle);
 
                 // 数据样式
                 CellStyle dataStyle = wb.createCellStyle();
@@ -89,43 +81,23 @@ public class ImportErrorExportUtil {
                 dataStyle.setBorderLeft(BorderStyle.THIN);
                 dataStyle.setBorderRight(BorderStyle.THIN);
 
-                // 填充数据
+                // 填充数据（完整错误信息，已包含行号）
                 for (int i = 0; i < errorMessages.size(); i++) {
                     Row row = sheet.createRow(i + 1);
-                    String msg = errorMessages.get(i);
-
-                    // 尝试从消息中解析行号
-                    int rowNum = 0;
-                    Matcher m = ROW_PATTERN.matcher(msg);
-                    if (m.find()) {
-                        try {
-                            rowNum = Integer.parseInt(m.group(1));
-                        } catch (NumberFormatException ignored) {}
-                    }
-
-                    Cell c0 = row.createCell(0);
-                    c0.setCellValue(rowNum);
-                    c0.setCellStyle(dataStyle);
-
-                    Cell c1 = row.createCell(1);
-                    c1.setCellValue(msg);
-                    c1.setCellStyle(dataStyle);
+                    Cell cell = row.createCell(0);
+                    cell.setCellValue(errorMessages.get(i));
+                    cell.setCellStyle(dataStyle);
                 }
 
-                // 自动列宽
-                sheet.setColumnWidth(0, 3000);
-                sheet.setColumnWidth(1, 18000);
+                sheet.setColumnWidth(0, 20000);
 
-                // 写入文件
                 try (FileOutputStream fos = new FileOutputStream(filePath)) {
                     wb.write(fos);
                 }
             }
 
-            // 构造下载 URL（相对于 upload 根目录）
             String relativeUrl = "/sys/common/static/" + ERROR_DIR + "/" + dateStr + "/" + fileName;
 
-            // 统计错误数
             String msg = successMsg + "；失败" + errorMessages.size() + "条（错误详情已自动下载）";
             String detailMsg = successMsg + "，其中失败" + errorMessages.size() + "条。";
 

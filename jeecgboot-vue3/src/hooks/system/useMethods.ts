@@ -97,9 +97,21 @@ export function useMethods() {
                                 <p>错误详情文件<a href = ${href} download = ${fileName}> ${fileName} </a>已自动下载，也可点击链接重新下载。</p>
                               </div>`,
           });
-          // 自动触发浏览器下载（服务端已设置 Content-Disposition: attachment 强制下载）
+          // 自动触发浏览器下载（fetch + Blob 方案，不会被弹窗拦截器阻止）
           try {
-            window.open(href, '_blank');
+            fetch(href)
+              .then(res => res.blob())
+              .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+              })
+              .catch(e => console.warn('自动下载导入错误文件失败:', e));
           } catch (e) {
             console.warn('自动下载导入错误文件失败:', e);
           }

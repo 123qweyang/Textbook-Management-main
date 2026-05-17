@@ -48,8 +48,8 @@ public class StudentAllBillSummary implements Serializable {
     @Schema(description = "学院名称")
     private java.lang.String collegeName;
 	/**专业ID*/
-	@Excel(name = "专业ID", width = 15, dictTable = "", dicCode = "", dicText = "")
-	@Dict(dictTable = "", dicCode = "", dicText = "")
+	@Excel(name = "专业ID", width = 15, dictTable = "t_major", dicCode = "id", dicText = "major_name")
+	@Dict(dictTable = "t_major", dicCode = "id", dicText = "major_name")
     @Schema(description = "专业ID")
     private java.lang.String majorId;
 	/**专业名称*/

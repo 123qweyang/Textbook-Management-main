@@ -19,7 +19,10 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.extern.slf4j.Slf4j;
 
 import org.jeecgframework.poi.excel.ExcelImportUtil;
+import org.jeecgframework.poi.excel.def.NormalExcelConstants;
+import org.jeecgframework.poi.excel.entity.ExportParams;
 import org.jeecgframework.poi.excel.entity.ImportParams;
+import org.jeecgframework.poi.excel.view.JeecgEntityExcelView;
 import org.jeecg.common.system.base.controller.JeecgController;
 import org.jeecg.modules.demo.zbu.vo.ImportErrorExportUtil;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -817,7 +820,85 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 	@RequiresPermissions("zbu:t_textbook_selection:exportXls")
 	@RequestMapping(value = "/exportXls")
 	public ModelAndView exportXls(HttpServletRequest request, TTextbookSelection tTextbookSelection) {
-		return super.exportXls(request, tTextbookSelection, TTextbookSelection.class, "教材选用表");
+		// 使用视图查询，确保ISBN等关联字段被填充
+		StringBuilder sql = new StringBuilder("SELECT * FROM v_textbook_selection_with_isbn WHERE 1=1");
+
+		if (oConvertUtils.isNotEmpty(tTextbookSelection.getMajorId())) {
+			sql.append(" AND majorId = '").append(tTextbookSelection.getMajorId()).append("'");
+		}
+		if (oConvertUtils.isNotEmpty(tTextbookSelection.getMajorName())) {
+			sql.append(" AND majorName LIKE '%").append(tTextbookSelection.getMajorName()).append("%'");
+		}
+		if (oConvertUtils.isNotEmpty(tTextbookSelection.getClassId())) {
+			sql.append(" AND classId = '").append(tTextbookSelection.getClassId()).append("'");
+		}
+		if (oConvertUtils.isNotEmpty(tTextbookSelection.getClassName())) {
+			sql.append(" AND className LIKE '%").append(tTextbookSelection.getClassName()).append("%'");
+		}
+		if (oConvertUtils.isNotEmpty(tTextbookSelection.getTextbookId())) {
+			sql.append(" AND textbookId = '").append(tTextbookSelection.getTextbookId()).append("'");
+		}
+		if (oConvertUtils.isNotEmpty(tTextbookSelection.getTextbookName())) {
+			sql.append(" AND textbookName LIKE '%").append(tTextbookSelection.getTextbookName()).append("%'");
+		}
+		if (oConvertUtils.isNotEmpty(tTextbookSelection.getIsbn())) {
+			sql.append(" AND isbn LIKE '%").append(tTextbookSelection.getIsbn()).append("%'");
+		}
+		if (oConvertUtils.isNotEmpty(tTextbookSelection.getSchoolYear())) {
+			sql.append(" AND schoolYear = '").append(tTextbookSelection.getSchoolYear()).append("'");
+		}
+		if (oConvertUtils.isNotEmpty(tTextbookSelection.getSemester())) {
+			sql.append(" AND semester LIKE '%").append(tTextbookSelection.getSemester()).append("%'");
+		}
+		if (oConvertUtils.isNotEmpty(tTextbookSelection.getSelectionStatus())) {
+			sql.append(" AND selectionStatus LIKE '%").append(tTextbookSelection.getSelectionStatus()).append("%'");
+		}
+
+		sql.append(" ORDER BY createTime DESC");
+
+		// 查询视图获取数据（包含ISBN等关联字段）
+		List<Map<String, Object>> records = jdbcTemplate.queryForList(sql.toString());
+
+		// 转换为TTextbookSelection对象
+		List<TTextbookSelection> exportList = new ArrayList<>();
+		for (Map<String, Object> record : records) {
+			TTextbookSelection item = new TTextbookSelection();
+			item.setId((String) record.get("id"));
+			item.setMajorId((String) record.get("majorId"));
+			item.setClassId((String) record.get("classId"));
+			item.setTextbookId((String) record.get("textbookId"));
+			item.setSchoolYear((String) record.get("schoolYear"));
+			item.setSemester((String) record.get("semester"));
+			item.setSelectionStatus((String) record.get("selectionStatus"));
+			item.setRemark((String) record.get("remark"));
+			item.setIsbn((String) record.get("isbn"));
+			// 填充翻译字段
+			item.setMajorName((String) record.get("majorName"));
+			item.setClassName((String) record.get("className"));
+			item.setTextbookName((String) record.get("textbookName"));
+			Object ct = record.get("createTime");
+			if (ct instanceof java.time.LocalDateTime) {
+				item.setCreateTime(java.util.Date.from(((java.time.LocalDateTime) ct).atZone(java.time.ZoneId.systemDefault()).toInstant()));
+			} else if (ct instanceof java.util.Date) {
+				item.setCreateTime((java.util.Date) ct);
+			}
+			Object ut = record.get("updateTime");
+			if (ut instanceof java.time.LocalDateTime) {
+				item.setUpdateTime(java.util.Date.from(((java.time.LocalDateTime) ut).atZone(java.time.ZoneId.systemDefault()).toInstant()));
+			} else if (ut instanceof java.util.Date) {
+				item.setUpdateTime((java.util.Date) ut);
+			}
+			exportList.add(item);
+		}
+
+		// 构建导出
+		ModelAndView mv = new ModelAndView(new JeecgEntityExcelView());
+		mv.addObject(NormalExcelConstants.FILE_NAME, "教材选用表");
+		mv.addObject(NormalExcelConstants.CLASS, TTextbookSelection.class);
+		mv.addObject(NormalExcelConstants.PARAMS,
+				new ExportParams("教材选用表", "教材选用表"));
+		mv.addObject(NormalExcelConstants.DATA_LIST, exportList);
+		return mv;
 	}
 
 	/**
@@ -860,6 +941,8 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 				List<String> errorMsgList = new ArrayList<>();
 				// 存储原始的专业/班级输入内容，使用行索引作为key（因为修改selection字段会改变hashCode导致Map找不到）
 				Map<Integer, String> rawMajorInputMap = new HashMap<>();
+				// 存储原始的备注内容（remark被临时用作行号存储，需要提前保存原始值）
+					Map<Integer, String> originalRemarkMap = new HashMap<>();
 
 				for (int i = 0; i < list.size(); i++) {
 					TTextbookSelection selection = list.get(i);
@@ -872,7 +955,7 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 					log.info("第{}行 处理专业字段,原始值=[{}], isEmpty={}", rowNum, majorContent,
 							oConvertUtils.isEmpty(majorContent));
 					if (oConvertUtils.isEmpty(majorContent)) {
-						errorMsgList.add("第" + rowNum + "行：专业不能为空");
+						errorMsgList.add("第" + rowNum + "行，专业字段不能为空，请检查。");
 						isValid = false;
 					} else {
 						// 保存原始输入内容，使用行索引作为key
@@ -884,7 +967,7 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 					String textbookContent = selection.getTextbookId();
 					String textbookIsbn = null;
 					if (oConvertUtils.isEmpty(textbookContent)) {
-						errorMsgList.add("第" + rowNum + "行：教材不能为空");
+						errorMsgList.add("第" + rowNum + "行，教材字段不能为空，请检查。");
 						isValid = false;
 					} else {
 						if (textbookContent.matches("^\\d{16,}$")) {
@@ -893,7 +976,7 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 							textbookIdWrapper.eq("id", textbookContent.trim());
 							TTextbook textbook = tTextbookService.getOne(textbookIdWrapper);
 							if (textbook == null) {
-								errorMsgList.add("第" + rowNum + "行：教材ID「" + textbookContent + "」不存在，请检查");
+								errorMsgList.add("第" + rowNum + "行，教材ID「" + textbookContent + "」不存在，请检查");
 								isValid = false;
 							} else {
 								textbookIsbn = textbook.getIsbn();
@@ -903,7 +986,7 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 							textbookWrapper.eq("textbook_name", textbookContent.trim());
 							TTextbook textbook = tTextbookService.getOne(textbookWrapper);
 							if (textbook == null) {
-								errorMsgList.add("第" + rowNum + "行：教材名称「" + textbookContent + "」不存在，请检查");
+								errorMsgList.add("第" + rowNum + "行，教材名称「" + textbookContent + "」不存在，请检查。");
 								isValid = false;
 							} else {
 								selection.setTextbookId(textbook.getId());
@@ -926,6 +1009,8 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 						selection.setCreateTime(new Date());
 						selection.setUpdateTime(new Date());
 						// 将行号附加到selection上，用于后续查找原始输入
+					// 保存原始备注值，remark将被临时用作行号存储
+						originalRemarkMap.put(rowNum, selection.getRemark());
 						selection.setRemark(rowNum + ""); // 临时用remark存储行号
 						validList.add(selection);
 					}
@@ -956,7 +1041,7 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 					List<TClass> matchedClasses = parseMajorAndClassContent(rawMajorContent, rowNum);
 
 					if (matchedClasses.isEmpty()) {
-						String skipMsg = "第" + rowNum + "行：专业/班级「" + rawMajorContent + "」不存在，已跳过";
+						String skipMsg = "第" + rowNum + "行，专业/班级「" + rawMajorContent + "」不存在，请检查。";
 						skipMsgList.add(skipMsg);
 						log.warn(skipMsg);
 						continue;
@@ -974,7 +1059,7 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 						newSelection.setSchoolYear(selection.getSchoolYear());
 						newSelection.setSemester(selection.getSemester());
 						newSelection.setSelectionStatus(selection.getSelectionStatus());
-						newSelection.setRemark(selection.getRemark());
+						newSelection.setRemark(originalRemarkMap.getOrDefault(rowNum, ""));
 						newSelection.setCreateTime(new Date());
 						newSelection.setUpdateTime(new Date());
 
@@ -989,9 +1074,18 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 						if (dupCount == 0) {
 							finalSaveList.add(newSelection);
 						} else {
-							log.info("跳过重复记录：学年={}, 学期={}, 教材={}, 专业={}, 班级={}",
-									newSelection.getSchoolYear(), newSelection.getSemester(),
-									newSelection.getTextbookId(), newSelection.getMajorId(), newSelection.getClassId());
+							String dupTextbookName = selection.getTextbookId();
+							try {
+								TTextbook tb = tTextbookService.getById(selection.getTextbookId());
+								if (tb != null) dupTextbookName = tb.getTextbookName();
+							} catch (Exception ignored) {}
+							String semesterLabel = "1".equals(selection.getSemester()) ? "第一学期" :
+									"2".equals(selection.getSemester()) ? "第二学期" : selection.getSemester();
+							String dupMsg = "第" + rowNum + "行，教材「" + dupTextbookName + "」在班级「"
+									+ clazz.getClassName() + "」的" + selection.getSchoolYear()
+									+ "学年" + semesterLabel + "记录已存在，跳过导入。";
+							skipMsgList.add(dupMsg);
+							log.info(dupMsg);
 						}
 					}
 				}
@@ -1125,6 +1219,25 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 		// 尝试4：模糊匹配专业名称
 		List<TClass> fuzzyClasses = tryFuzzyMatchMajor(item);
 		result.addAll(fuzzyClasses);
+
+		// 尝试5：按ID查找（兼容导出的旧数据或直接填ID的情况，ID通常15位以上）
+			if (result.isEmpty() && item.matches("\\d{15,}")) {
+				TMajor majorById = tMajorService.getById(item);
+				if (majorById != null) {
+					QueryWrapper<TClass> classWrapper = new QueryWrapper<>();
+					classWrapper.eq("major_id", majorById.getId());
+					List<TClass> majorClasses = tClassService.list(classWrapper);
+					result.addAll(majorClasses);
+					log.info("第{}行：按专业ID「{}」匹配到专业「{}」，找到{}个班级", rowNum, item, majorById.getMajorName(), majorClasses.size());
+				}
+				if (result.isEmpty()) {
+					TClass classById = tClassService.getById(item);
+					if (classById != null) {
+						result.add(classById);
+						log.info("第{}行：按班级ID「{}」匹配到班级「{}」", rowNum, item, classById.getClassName());
+					}
+				}
+			}
 
 		return result;
 	}
