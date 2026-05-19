@@ -85,6 +85,16 @@ export const columns: BasicColumn[] = [
 //查询数据
 export const searchFormSchema: FormSchema[] = [
   {
+    label: "标段",
+    field: 'sectionCode',
+    component: 'Input',
+  },
+  {
+    label: "编号",
+    field: 'businessCode',
+    component: 'Input',
+  },
+  {
     label: "征订号或书号",
     field: 'isbn',
     component: 'Input',

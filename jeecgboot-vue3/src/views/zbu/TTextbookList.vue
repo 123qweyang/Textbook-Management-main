@@ -8,9 +8,7 @@
           <a-button type="primary" v-auth="'zbu:t_textbook:add'" @click="handleAdd" preIcon="ant-design:plus-outlined"> 新增</a-button>
           <a-button type="primary" v-auth="'zbu:t_textbook:exportXls'" preIcon="ant-design:export-outlined" @click="onExportXls" class="ml-2"> 导出</a-button>
           <j-upload-button type="primary" v-auth="'zbu:t_textbook:importExcel'" preIcon="ant-design:import-outlined" @click="onImportXls" class="ml-2">导入</j-upload-button>
-
-          <a-button type="primary" @click="handleSelectAll" class="ml-2">全选</a-button>
-          <a-button type="primary" @click="handleClearSelect" class="ml-2" v-if="selectedRowKeys.length > 0">清空选择</a-button>
+          <j-upload-button type="primary" v-auth="'zbu:t_textbook:importExcel'" preIcon="ant-design:edit-outlined" @click="onUpdateXls" class="ml-2">更新</j-upload-button>
 
           <a-dropdown v-if="selectedRowKeys.length > 0" class="ml-2">
             <template #overlay>
@@ -25,20 +23,6 @@
               <Icon icon="mdi:chevron-down"></Icon>
             </a-button>
           </a-dropdown>
-
-          <!-- 高级查询 -->
-          <!--          <super-query :config="superQueryConfig" @search="handleSuperQuery" class="ml-2 flex-1 min-w-[200px]" />-->
-
-          <!-- 批量修改按钮 -->
-          <a-button
-            type="primary"
-            v-if="selectedRowKeys.length > 0"
-            @click="batchHandleEdit"
-            preIcon="ant-design:edit-outlined"
-            class="ml-2"
-          >
-            批量修改（标段/编号/折扣）
-          </a-button>
         </div>
       </template>
 
@@ -52,70 +36,25 @@
       </template>
     </BasicTable>
 
-    <!-- 批量修改弹窗：彻底简化，无任何非法属性 -->
-    <a-modal
-      v-model:open="batchEditModalVisible"
-      title="批量修改教材信息"
-      ok-text="确认修改"
-      cancel-text="取消"
-      @ok="doBatchEdit"
-      width="500px"
-      :confirm-loading="batchEditLoading"
-    >
-      <div class="batch-edit-form">
-        <div class="form-item">
-          <label class="form-label">标段：</label>
-          <input v-model="batchEditForm.sectionCode" placeholder="请输入标段（选填）" class="form-input" />
-        </div>
-        <div class="form-item">
-          <label class="form-label">编号：</label>
-          <input v-model="batchEditForm.businessCode" placeholder="请输入编号（选填）" class="form-input" />
-        </div>
-        <div class="form-item">
-          <label class="form-label">折扣：</label>
-          <input
-            v-model="batchEditForm.discount"
-            placeholder="请输入折扣（如0.85=85折）"
-            class="form-input"
-            type="number"
-            min="0.01"
-            max="1"
-            step="0.01"
-          />
-        </div>
-      </div>
-    </a-modal>
-
     <!-- 原有弹窗 -->
     <TTextbookModal @register="registerModal" @success="handleSuccess"></TTextbookModal>
   </div>
 </template>
 
 <script lang="ts" name="zbu-tTextbook" setup>
-import { ref, reactive } from 'vue';
+import { reactive } from 'vue';
 import { BasicTable, useTable, TableAction } from '/@/components/Table';
 import { useModal } from '/@/components/Modal';
 import { useListPage } from '/@/hooks/system/useListPage'
+import { useMethods } from '/@/hooks/system/useMethods'
 import TTextbookModal from './components/TTextbookModal.vue'
 import { columns, searchFormSchema, superQuerySchema } from './TTextbook.data';
-import { list, deleteOne, batchDelete, getImportUrl, getExportUrl, batchEdit, getAllIds, getCurrentSchoolYear } from './TTextbook.api';
-import { useMessage } from '/@/hooks/web/useMessage';
+import { list, deleteOne, batchDelete, getImportUrl, getUpdateUrl, getExportUrl, getCurrentSchoolYear } from './TTextbook.api';
 import { getDateByPicker } from '/@/utils';
 
 // 基础变量
 const fieldPickers = reactive({});
 const queryParam = reactive<any>({});
-const { createMessage } = useMessage();
-
-// 批量修改弹窗变量（明确初始化）
-const batchEditModalVisible = ref(false);
-const batchEditForm = reactive({
-  sectionCode: '',
-  businessCode: '',
-  discount: '',
-});
-// 新增：批量修改加载状态（防止重复提交）
-const batchEditLoading = ref(false);
 
 // 注册原有Modal
 const [registerModal, { openModal }] = useModal();
@@ -175,43 +114,12 @@ const { tableContext, onExportXls, onImportXls } = useListPage({
   },
 })
 
-const [registerTable, { reload, getDataSource, getForm }, { rowSelection, selectedRowKeys }] = tableContext;
+const [registerTable, { reload }, { rowSelection, selectedRowKeys }] = tableContext;
 
-// 全选所有搜索结果
-async function handleSelectAll() {
-  try {
-    const form = getForm();
-    const formValues = form?.getFieldsValue() || {};
-    console.log('表单值:', formValues);
-    console.log('queryParam:', queryParam);
-
-    const params = { ...queryParam, ...formValues };
-    console.log('合并参数:', params);
-    params.pageNo = 1;
-    params.pageSize = 999999999;
-    console.log('最终参数:', params);
-
-    const res = await getAllIds(params);
-    console.log('API响应:', res);
-
-    if (res.success && Array.isArray(res.result)) {
-      selectedRowKeys.value = res.result;
-      createMessage.success('已选中 ' + res.result.length + ' 条记录');
-    } else if (res.success) {
-      selectedRowKeys.value = [];
-      createMessage.warning('没有找到任何记录');
-    } else {
-      createMessage.warning('获取记录失败: ' + (res.message || '未知错误'));
-    }
-  } catch (err: any) {
-    console.error('错误:', err);
-    createMessage.error('获取记录失败: ' + (err.message || '未知错误'));
-  }
-}
-
-// 清空选择
-function handleClearSelect() {
-  selectedRowKeys.value = [];
+// 更新Excel上传（复用导入的上传处理逻辑）
+const { handleImportXls } = useMethods();
+function onUpdateXls(file) {
+  return handleImportXls(file, getUpdateUrl, reload);
 }
 
 // 高级查询配置
@@ -240,53 +148,6 @@ async function handleDelete(record) {
 }
 async function batchHandleDelete() {
   await batchDelete({ ids: selectedRowKeys.value }, handleSuccess);
-}
-
-// 批量修改方法（简化）
-function batchHandleEdit() {
-  console.log('批量修改按钮点击，弹窗状态：', batchEditModalVisible.value);
-  // 重置表单
-  batchEditForm.sectionCode = '';
-  batchEditForm.businessCode = '';
-  batchEditForm.discount = '';
-  // 打开弹窗
-  batchEditModalVisible.value = true;
-}
-
-// 批量修改提交（核心修复）
-async function doBatchEdit() {
-  // 1. 基础校验
-  if (!batchEditForm.sectionCode && !batchEditForm.businessCode && !batchEditForm.discount) {
-    createMessage.warning('请至少填写一个修改字段');
-    return;
-  }
-
-  // 2. 构造参数（优化折扣处理，避免空字符串转数字报错）
-  const params = {
-    ids: selectedRowKeys.value.join(','),
-    sectionCode: batchEditForm.sectionCode.trim() || undefined,
-    businessCode: batchEditForm.businessCode.trim() || undefined,
-    discount: batchEditForm.discount ? Number(batchEditForm.discount) : undefined,
-  };
-
-  try {
-    // 3. 开启加载状态，防止重复提交
-    batchEditLoading.value = true;
-
-    // 4. 调用批量修改接口（修复：只传1个参数，符合API定义）
-    await batchEdit(params);
-
-    // 5. 成功提示+刷新列表
-    createMessage.success('批量修改成功！');
-    handleSuccess();
-  } catch (err: any) {
-    // 6. 失败提示
-    createMessage.error(`批量修改失败：${err.message || '服务器处理异常'}`);
-  } finally {
-    // 7. 关闭弹窗+关闭加载状态
-    batchEditModalVisible.value = false;
-    batchEditLoading.value = false;
-  }
 }
 
 // 成功回调

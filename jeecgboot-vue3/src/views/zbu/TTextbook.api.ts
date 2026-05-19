@@ -10,6 +10,7 @@ enum Api {
   deleteOne = '/zbu/tTextbook/delete',
   deleteBatch = '/zbu/tTextbook/deleteBatch',
   importExcel = '/zbu/tTextbook/importExcel',
+  updateByExcel = '/zbu/tTextbook/updateByExcel',
   exportXls = '/zbu/tTextbook/exportXls',
   editBatch = '/zbu/tTextbook/editBatch',
   getCurrentSchoolYear = '/zbu/studentBill/getCurrentSchoolYear',
@@ -23,6 +24,10 @@ export const getExportUrl = Api.exportXls;
  * 导入api
  */
 export const getImportUrl = Api.importExcel;
+/**
+ * 更新api（按ISBN+学年+学期匹配更新）
+ */
+export const getUpdateUrl = Api.updateByExcel;
 /**
  * 列表接口
  * @param params

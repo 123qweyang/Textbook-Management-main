@@ -144,6 +144,7 @@ export class VAxios {
       .request<T>({
         ...config,
         method: 'POST',
+        timeout: 120000, // 导入请求超时设为2分钟，避免大批量数据导入误报超时
         data: formData,
         headers: {
           'Content-type': ContentTypeEnum.FORM_DATA,

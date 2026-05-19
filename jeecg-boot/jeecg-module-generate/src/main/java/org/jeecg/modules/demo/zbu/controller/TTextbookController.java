@@ -96,6 +96,12 @@ public class TTextbookController extends JeecgController<TTextbook, ITTextbookSe
 		queryWrapper.eq("enable_year", enableYear);
 
 		// 其他可选条件
+		if (oConvertUtils.isNotEmpty(tTextbook.getSectionCode())) {
+			queryWrapper.like("section_code", tTextbook.getSectionCode());
+		}
+		if (oConvertUtils.isNotEmpty(tTextbook.getBusinessCode())) {
+			queryWrapper.like("business_code", tTextbook.getBusinessCode());
+		}
 		if (oConvertUtils.isNotEmpty(tTextbook.getIsbn())) {
 			queryWrapper.like("isbn", tTextbook.getIsbn());
 		}
@@ -109,6 +115,40 @@ public class TTextbookController extends JeecgController<TTextbook, ITTextbookSe
 		Page<TTextbook> page = new Page<TTextbook>(pageNo, pageSize);
 		IPage<TTextbook> pageList = tTextbookService.page(page, queryWrapper);
 		return Result.OK(pageList);
+	}
+
+	/**
+	 * 全选：获取当前筛选条件下所有教材ID
+	 */
+	@Operation(summary = "教材表-获取全部ID")
+	@GetMapping(value = "/getAllIds")
+	public Result<List<String>> getAllIds(TTextbook tTextbook, HttpServletRequest req) {
+		QueryWrapper<TTextbook> queryWrapper = new QueryWrapper<>();
+
+		// 启用学年筛选（与list逻辑一致）
+		String enableYear = req.getParameter("enableYear");
+		if (oConvertUtils.isEmpty(enableYear)) {
+			Calendar cal = Calendar.getInstance();
+			int year = cal.get(Calendar.YEAR);
+			int month = cal.get(Calendar.MONTH) + 1;
+			if (month >= 8) {
+				enableYear = year + "-" + (year + 1);
+			} else {
+				enableYear = (year - 1) + "-" + year;
+			}
+		}
+		queryWrapper.eq("enable_year", enableYear);
+
+		if (oConvertUtils.isNotEmpty(tTextbook.getIsbn())) {
+			queryWrapper.like("isbn", tTextbook.getIsbn());
+		}
+		if (oConvertUtils.isNotEmpty(tTextbook.getTextbookName())) {
+			queryWrapper.like("textbook_name", tTextbook.getTextbookName());
+		}
+
+		List<TTextbook> list = tTextbookService.list(queryWrapper);
+		List<String> ids = list.stream().map(TTextbook::getId).collect(Collectors.toList());
+		return Result.OK(ids);
 	}
 
 	/**
@@ -310,6 +350,12 @@ public class TTextbookController extends JeecgController<TTextbook, ITTextbookSe
 					failMsgList.add("第" + rowNum + "行：ISBN为空，跳过导入");
 					continue;
 				}
+				// 清洗ISBN：去掉空格和横线
+				textbook.setIsbn(textbook.getIsbn().replaceAll("[\\s-]", ""));
+				if (oConvertUtils.isEmpty(textbook.getIsbn())) {
+					failMsgList.add("第" + rowNum + "行：ISBN清洗后为空，跳过导入");
+					continue;
+				}
 				if (oConvertUtils.isEmpty(textbook.getEnableYear())) {
 					failMsgList.add("第" + rowNum + "行：启用学年为空（ISBN：" + textbook.getIsbn() + "），跳过导入");
 					continue;
@@ -345,6 +391,103 @@ public class TTextbookController extends JeecgController<TTextbook, ITTextbookSe
 		} catch (Exception e) {
 			log.error("【教材导入】失败", e);
 			return Result.error("导入失败：" + e.getMessage());
+		}
+	}
+
+	/**
+	 * 通过Excel更新教材信息（按ISBN+启用学年+启用学期匹配）
+	 */
+	@RequiresPermissions("zbu:t_textbook:importExcel")
+	@RequestMapping(value = "/updateByExcel", method = RequestMethod.POST)
+	public Result<?> updateByExcel(HttpServletRequest request) {
+		try {
+			MultipartHttpServletRequest multipartRequest = (MultipartHttpServletRequest) request;
+			Map<String, MultipartFile> fileMap = multipartRequest.getFileMap();
+
+			if (fileMap.isEmpty()) {
+				return Result.error("请选择要上传的Excel文件！");
+			}
+
+			int updateCount = 0;
+			List<String> failMsgList = new ArrayList<>();
+
+			for (Map.Entry<String, MultipartFile> entity : fileMap.entrySet()) {
+				MultipartFile file = entity.getValue();
+				if (file.isEmpty()) continue;
+
+				ImportParams params = new ImportParams();
+				params.setTitleRows(2);
+				params.setHeadRows(1);
+				params.setNeedSave(false);
+
+				List<TTextbook> list = ExcelImportUtil.importExcel(file.getInputStream(), TTextbook.class, params);
+
+				for (int i = 0; i < list.size(); i++) {
+					TTextbook tb = list.get(i);
+					int rowNum = i + 3;
+
+					// 清洗ISBN
+					if (oConvertUtils.isNotEmpty(tb.getIsbn())) {
+						tb.setIsbn(tb.getIsbn().replaceAll("[\\s-]", ""));
+					}
+
+					// 必填校验
+					if (oConvertUtils.isEmpty(tb.getIsbn())) {
+						failMsgList.add("第" + rowNum + "行：ISBN为空，跳过更新");
+						continue;
+					}
+					if (oConvertUtils.isEmpty(tb.getEnableYear())) {
+						failMsgList.add("第" + rowNum + "行：启用学年为空（ISBN：" + tb.getIsbn() + "），跳过更新");
+						continue;
+					}
+					if (oConvertUtils.isEmpty(tb.getEnableSemester())) {
+						failMsgList.add("第" + rowNum + "行：启用学期为空（ISBN：" + tb.getIsbn() + "），跳过更新");
+						continue;
+					}
+
+					// 按ISBN+启用学年+启用学期查找已有记录
+					QueryWrapper<TTextbook> queryWrapper = new QueryWrapper<>();
+					queryWrapper.eq("isbn", tb.getIsbn());
+					queryWrapper.eq("enable_year", tb.getEnableYear());
+					queryWrapper.eq("enable_semester", tb.getEnableSemester());
+					TTextbook exist = tTextbookService.getOne(queryWrapper);
+
+					if (exist == null) {
+						failMsgList.add("第" + rowNum + "行：ISBN【" + tb.getIsbn() + "】（学年：" + tb.getEnableYear()
+								+ "，学期：" + tb.getEnableSemester() + "）不存在，无法更新");
+						continue;
+					}
+
+					// 更新标段、编号、折扣
+					boolean updated = false;
+					if (oConvertUtils.isNotEmpty(tb.getSectionCode())) {
+						exist.setSectionCode(tb.getSectionCode());
+						updated = true;
+					}
+					if (oConvertUtils.isNotEmpty(tb.getBusinessCode())) {
+						exist.setBusinessCode(tb.getBusinessCode());
+						updated = true;
+					}
+					if (tb.getDiscount() != null) {
+						exist.setDiscount(tb.getDiscount());
+						updated = true;
+					}
+
+					if (updated) {
+						tTextbookService.updateById(exist);
+						updateCount++;
+					} else {
+						failMsgList.add("第" + rowNum + "行：ISBN【" + tb.getIsbn() + "】未提供任何要更新的字段，跳过");
+					}
+				}
+			}
+
+			String successMsg = "更新完成！成功更新【" + updateCount + "】条记录";
+			return ImportErrorExportUtil.buildErrorResult(failMsgList, successMsg, uploadPath, "教材表");
+
+		} catch (Exception e) {
+			log.error("通过Excel更新教材失败", e);
+			return Result.error("更新失败：" + e.getMessage());
 		}
 	}
 

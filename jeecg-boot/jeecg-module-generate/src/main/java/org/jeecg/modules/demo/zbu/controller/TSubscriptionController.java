@@ -375,35 +375,98 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 	@RequiresPermissions("zbu:t_subscription:importExcel")
 	@RequestMapping(value = "/importExcel", method = RequestMethod.POST)
 	public Result<?> importExcel(HttpServletRequest request, HttpServletResponse response) {
-		MultipartHttpServletRequest multipartRequest = (MultipartHttpServletRequest) request;
-		Map<String, MultipartFile> fileMap = multipartRequest.getFileMap();
-		for (Map.Entry<String, MultipartFile> entity : fileMap.entrySet()) {
-			MultipartFile file = entity.getValue();
-			ImportParams params = new ImportParams();
-			params.setTitleRows(2);
-			params.setHeadRows(1);
-			params.setNeedSave(true);
-			try {
-				List<TSubscription> list = ExcelImportUtil.importExcel(file.getInputStream(), TSubscription.class, params);
-				long start = System.currentTimeMillis();
-				service.saveBatch(list);
-				log.info("消耗时间" + (System.currentTimeMillis() - start) + "毫秒");
-				return Result.ok("文件导入成功！数据行数：" + list.size());
-			} catch (Exception e) {
-				String msg = e.getMessage();
-				log.error(msg, e);
-				List<String> failMsgList = new ArrayList<>();
-				if (msg != null && msg.indexOf("Duplicate entry") >= 0) {
-					failMsgList.add("存在重复数据：" + msg);
-				} else {
-					failMsgList.add("导入异常：" + msg);
-				}
-				return ImportErrorExportUtil.buildErrorResult(failMsgList, "导入完成！成功导入0条有效数据", uploadPath, "征订表");
-			} finally {
-				try { file.getInputStream().close(); } catch (IOException e) { e.printStackTrace(); }
+		try {
+			MultipartHttpServletRequest multipartRequest = (MultipartHttpServletRequest) request;
+			Map<String, MultipartFile> fileMap = multipartRequest.getFileMap();
+			if (fileMap.isEmpty()) {
+				return Result.error("请选择要导入的Excel文件！");
 			}
+
+			List<TSubscription> validList = new ArrayList<>();
+			List<String> errorMsgList = new ArrayList<>();
+
+			for (Map.Entry<String, MultipartFile> entity : fileMap.entrySet()) {
+				MultipartFile file = entity.getValue();
+				if (file.isEmpty()) continue;
+				ImportParams params = new ImportParams();
+				params.setTitleRows(2);
+				params.setHeadRows(1);
+				params.setNeedSave(false);
+
+				List<TSubscription> list = ExcelImportUtil.importExcel(file.getInputStream(), TSubscription.class, params);
+
+				for (int i = 0; i < list.size(); i++) {
+					TSubscription sub = list.get(i);
+					int rowNum = i + 4;
+
+					// 校验教材
+					String textbookInput = sub.getTextbookId();
+					if (oConvertUtils.isEmpty(textbookInput)) {
+						errorMsgList.add("第" + rowNum + "行，教材字段不能为空，请检查。");
+						continue;
+					}
+
+					// 解析教材（按ID、ISBN、名称依次查找）
+					TTextbook textbook = tTextbookService.getById(textbookInput);
+					if (textbook == null) {
+						textbook = tTextbookService.lambdaQuery()
+								.eq(TTextbook::getIsbn, textbookInput.trim()).one();
+					}
+					if (textbook == null) {
+						textbook = tTextbookService.lambdaQuery()
+								.eq(TTextbook::getTextbookName, textbookInput.trim()).one();
+					}
+					if (textbook == null) {
+						errorMsgList.add("第" + rowNum + "行，教材「" + textbookInput + "」不存在，请检查。");
+						continue;
+					}
+					sub.setTextbookId(textbook.getId());
+
+					// 校验学年
+					if (oConvertUtils.isEmpty(sub.getSubscriptionYear())) {
+						errorMsgList.add("第" + rowNum + "行，征订学年字段不能为空，请检查。");
+						continue;
+					}
+
+					// 校验学期
+					if (oConvertUtils.isEmpty(sub.getSubscriptionSemester())) {
+						sub.setSubscriptionSemester("1");
+					}
+
+					// 补默认值
+					if (oConvertUtils.isEmpty(sub.getSubscribeStatus())) {
+						sub.setSubscribeStatus("0");
+					}
+					sub.setCreateTime(new Date());
+					sub.setUpdateTime(new Date());
+
+					// 查重：教材+学年+学期
+					QueryWrapper<TSubscription> dupWrapper = new QueryWrapper<>();
+					dupWrapper.eq("textbook_id", sub.getTextbookId())
+							.eq("subscription_year", sub.getSubscriptionYear())
+							.eq("subscription_semester", sub.getSubscriptionSemester());
+					if (tSubscriptionService.count(dupWrapper) > 0) {
+						String semesterLabel = "1".equals(sub.getSubscriptionSemester()) ? "第一学期" :
+								"2".equals(sub.getSubscriptionSemester()) ? "第二学期" : sub.getSubscriptionSemester();
+						errorMsgList.add("第" + rowNum + "行，ISBN【" + textbook.getIsbn() + "】已存在（学年："
+								+ sub.getSubscriptionYear() + "，学期：" + semesterLabel + "），跳过导入。");
+						continue;
+					}
+
+					validList.add(sub);
+				}
+			}
+
+			if (!validList.isEmpty()) {
+				service.saveBatch(validList);
+			}
+
+			String successMsg = "导入完成！成功导入【" + validList.size() + "】条有效数据";
+			return ImportErrorExportUtil.buildErrorResult(errorMsgList, successMsg, uploadPath, "征订表");
+		} catch (Exception e) {
+			log.error("Excel导入征订数据失败", e);
+			return Result.error("导入失败：" + e.getMessage());
 		}
-		return Result.error("文件导入失败！");
 	}
 
 	/**
