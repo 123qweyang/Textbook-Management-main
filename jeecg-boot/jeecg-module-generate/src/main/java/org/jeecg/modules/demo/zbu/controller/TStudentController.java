@@ -373,9 +373,48 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 	@Operation(summary = "学生表-编辑")
 	@RequiresPermissions("zbu:t_student:edit")
 	@RequestMapping(value = "/edit", method = { RequestMethod.PUT, RequestMethod.POST })
+	@Transactional(rollbackFor = Exception.class)
 	public Result<String> edit(@RequestBody TStudent tStudent) {
-		tStudentService.updateById(tStudent);
-		return Result.OK("编辑成功!");
+		try {
+			// 1. 查询修改前的学生信息
+			TStudent oldStudent = tStudentService.getById(tStudent.getId());
+			if (oldStudent == null) {
+				return Result.error("学生记录不存在！");
+			}
+
+			String oldMajorId = oldStudent.getMajorId();
+			String oldClassId = oldStudent.getClassId();
+			String newMajorId = tStudent.getMajorId();
+			String newClassId = tStudent.getClassId();
+
+			// 2. 执行更新
+			tStudentService.updateById(tStudent);
+
+			// 3. 判断专业或班级是否发生变更
+			boolean majorChanged = (oldMajorId == null && newMajorId != null)
+					|| (oldMajorId != null && !oldMajorId.equals(newMajorId));
+			boolean classChanged = (oldClassId == null && newClassId != null)
+					|| (oldClassId != null && !oldClassId.equals(newClassId));
+
+			if (majorChanged || classChanged) {
+				log.info("学生{}（学号{}）专业或班级变更：专业 {} -> {}，班级 {} -> {}，开始生成当前学年征订记录",
+						tStudent.getId(), oldStudent.getStudentId(),
+						oldMajorId, newMajorId, oldClassId, newClassId);
+
+				// 4. 重新查询更新后的完整学生信息（确保拿到最新数据）
+				TStudent updatedStudent = tStudentService.getById(tStudent.getId());
+
+				// 5. 仅为当前学年（上下学期）生成新征订记录（旧记录保留不删除）
+				generateCurrentYearSubscription(updatedStudent);
+
+				log.info("学生{}（学号{}）转专业/班级后当前学年征订记录生成完成", updatedStudent.getId(), updatedStudent.getStudentId());
+			}
+
+			return Result.OK("编辑成功!");
+		} catch (Exception e) {
+			log.error("编辑学生失败：", e);
+			return Result.error("编辑失败：" + e.getMessage());
+		}
 	}
 
 	/**
@@ -900,7 +939,6 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 			// 8. 构建返回结果
 			String successMsg = "导入完成！成功导入【" + validStudentList.size() + "】条有效数据";
 
-
 			return ImportErrorExportUtil.buildErrorResult(failMsgList, successMsg, uploadPath, "学生表");
 
 		} catch (Exception e) {
@@ -1045,6 +1083,82 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 		} catch (Exception e) {
 			log.error("为学生{}生成征订记录失败", student.getStudentId(), e);
 			throw new RuntimeException("学生新增成功，但生成教材征订相关记录失败：" + e.getMessage());
+		}
+	}
+
+	/**
+	 * 为转专业/班级的学生仅生成当前学年（上下学期）的征订记录
+	 * 旧专业/班级的征订记录保留不删除
+	 *
+	 * @param student 变更后的学生对象
+	 */
+	private void generateCurrentYearSubscription(TStudent student) {
+		try {
+			// 1. 校验学生核心字段（班级ID不能为空）
+			if (oConvertUtils.isEmpty(student.getClassId())) {
+				log.warn("学生{}（学号{}）无班级信息，跳过征订记录生成", student.getId(), student.getStudentId());
+				return;
+			}
+
+			// 2. 计算当前学年（8月及之后为 year-(year+1)，8月之前为 (year-1)-year）
+			Calendar cal = Calendar.getInstance();
+			int year = cal.get(Calendar.YEAR);
+			int month = cal.get(Calendar.MONTH) + 1;
+			String currentSchoolYear;
+			if (month >= 8) {
+				currentSchoolYear = year + "-" + (year + 1);
+			} else {
+				currentSchoolYear = (year - 1) + "-" + year;
+			}
+			log.info("当前学年：{}", currentSchoolYear);
+
+			// 3. 查询该学生新班级在当前学年的有效教材选用记录（生效状态=1）
+			QueryWrapper<TTextbookSelection> selectionWrapper = new QueryWrapper<>();
+			selectionWrapper.eq("class_id", student.getClassId())
+					.eq("selection_status", "1")
+					.eq("school_year", currentSchoolYear); // 仅当前学年
+			List<TTextbookSelection> selectionList = tTextbookSelectionService.list(selectionWrapper);
+			if (selectionList.isEmpty()) {
+				log.info("学生{}（学号{}）新班级{}在当前学年{}无有效教材选用记录，跳过征订记录生成",
+						student.getId(), student.getStudentId(), student.getClassId(), currentSchoolYear);
+				return;
+			}
+
+			// 4. 遍历教材选用记录，为该学生生成当前学年的征订记录
+			for (TTextbookSelection selection : selectionList) {
+				// 4.1 防重复：检查该学生+该教材+该学年学期是否已存在征订记录
+				QueryWrapper<TSubscription> subExistWrapper = new QueryWrapper<>();
+				subExistWrapper.eq("student_id", student.getId())
+						.eq("textbook_id", selection.getTextbookId())
+						.eq("subscription_year", selection.getSchoolYear())
+						.eq("subscription_semester", selection.getSemester());
+				if (tSubscriptionService.count(subExistWrapper) > 0) {
+					log.warn("学生{}（学号{}）已存在教材{}在{}学年第{}学期的征订记录，跳过",
+							student.getId(), student.getStudentId(), selection.getTextbookId(),
+							selection.getSchoolYear(), selection.getSemester());
+					continue;
+				}
+
+				// ========== 生成征订记录 ==========
+				TSubscription subscription = new TSubscription();
+				subscription.setStudentId(student.getId());
+				subscription.setTextbookId(selection.getTextbookId());
+				subscription.setSelectionId(selection.getId());
+				subscription.setMajorId(selection.getMajorId());
+				subscription.setSubscriptionYear(selection.getSchoolYear());
+				subscription.setSubscriptionSemester(selection.getSemester());
+				subscription.setSubscribeStatus("0"); // 初始征订状态（未征订）
+				subscription.setRemark("");
+				subscription.setCreateTime(new Date());
+				subscription.setUpdateTime(new Date());
+				tSubscriptionService.save(subscription);
+				log.info("为学生{}生成当前学年征订记录：教材{}，{}学年第{}学期",
+						student.getStudentId(), selection.getTextbookId(),
+						selection.getSchoolYear(), selection.getSemester());
+			}
+		} catch (Exception e) {
+			log.error("为学生{}生成当前学年征订记录失败", student.getStudentId(), e);
+			throw new RuntimeException("转专业/班级成功，但生成当前学年征订记录失败：" + e.getMessage());
 		}
 	}
 

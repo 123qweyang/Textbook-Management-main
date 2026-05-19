@@ -147,8 +147,9 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 					log.warn("征订记录ID:{} 查询专业名称失败（majorId={}）", sub.getId(), sub.getMajorId(), e);
 				}
 
-				// ====================== 2. 关联教材表：获取教材名称/定价/折扣 ======================
+				// ====================== 2. 关联教材表：获取教材名称/ISBN/定价/折扣 ======================
 				String textbookName = "未知教材";
+				String isbn = "";
 				BigDecimal price = new BigDecimal("0.00");
 				BigDecimal discount = new BigDecimal("1.00"); // 默认无折扣
 				try {
@@ -156,6 +157,9 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 					if (tTextbook != null) {
 						if (oConvertUtils.isNotEmpty(tTextbook.getTextbookName())) {
 							textbookName = tTextbook.getTextbookName();
+						}
+						if (oConvertUtils.isNotEmpty(tTextbook.getIsbn())) {
+							isbn = tTextbook.getIsbn();
 						}
 						if (tTextbook.getPrice() != null) {
 							price = tTextbook.getPrice();
@@ -211,6 +215,7 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 				bill.setSubscriptionYear(sub.getSubscriptionYear()); // 征订学年（征订表）
 				bill.setSubscriptionSemester(sub.getSubscriptionSemester()); // 征订学期（征订表）
 				bill.setTextbookName(textbookName); // 教材名称（教材表）
+				bill.setIsbn(isbn); // ISBN（教材表，通过textbookId精确匹配）
 				bill.setPrice(price); // 教材定价（教材表）
 				bill.setDiscountPrice(discountPrice); // 折后费用（教材表定价*教材表折扣）
 				bill.setSubscribeStatus(sub.getSubscribeStatus() != null ? sub.getSubscribeStatus() : "已征订"); // 征订状态（征订表）
@@ -656,6 +661,7 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 			recordMap.put("subscriptionYear", bill.getSubscriptionYear());
 			recordMap.put("subscriptionSemester", bill.getSubscriptionSemester());
 			recordMap.put("textbookName", bill.getTextbookName());
+			recordMap.put("isbn", bill.getIsbn() != null ? bill.getIsbn() : "");
 			recordMap.put("price", bill.getPrice());
 			recordMap.put("discountPrice", bill.getDiscountPrice());
 			recordMap.put("subscribeStatus", bill.getSubscribeStatus());
@@ -680,18 +686,6 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 				}
 			}
 			recordMap.put("studentName", studentName);
-
-			String textbookName = bill.getTextbookName();
-			String isbn = "";
-			if (textbookName != null && !textbookName.isEmpty()) {
-				try {
-					String isbnSql = "SELECT isbn FROM t_textbook WHERE textbook_name = ? LIMIT 1";
-					isbn = jdbcTemplate.queryForObject(isbnSql, String.class, textbookName);
-				} catch (Exception e) {
-					log.warn("查询ISBN失败：{}", e.getMessage());
-				}
-			}
-			recordMap.put("isbn", isbn != null ? isbn : "");
 
 			// 查询班级名称和学院名称
 			String studentIdForClass = bill.getStudentId();

@@ -77,7 +77,6 @@ public class StudentBill implements Serializable {
 	@Schema(description = "教材名称")
 	private java.lang.String textbookName;
 	/** ISBN */
-	@TableField(exist = false)
 	@Excel(name = "ISBN", width = 20)
 	@Schema(description = "ISBN")
 	private java.lang.String isbn;
