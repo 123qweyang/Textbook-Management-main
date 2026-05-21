@@ -10,6 +10,9 @@
           <a-button  type="primary" v-auth="'zbu:t_student:exportXls'" preIcon="ant-design:export-outlined" @click="onExportXls"> 导出</a-button>
         </template>
         <j-upload-button type="primary" v-auth="'zbu:t_student:importExcel'" preIcon="ant-design:import-outlined" @click="onImportXls">导入</j-upload-button>
+        <template v-if="isAdmin">
+          <j-upload-button type="primary" v-auth="'zbu:t_student:importExcel'" preIcon="ant-design:edit-outlined" @click="onUpdateXls">更新</j-upload-button>
+        </template>
 
           <a-dropdown v-if="selectedRowKeys.length > 0">
               <template #overlay>
