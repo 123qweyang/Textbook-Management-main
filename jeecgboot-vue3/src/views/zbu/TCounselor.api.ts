@@ -10,6 +10,7 @@ enum Api {
   deleteOne = '/zbu/tCounselor/delete',
   deleteBatch = '/zbu/tCounselor/deleteBatch',
   importExcel = '/zbu/tCounselor/importExcel',
+  updateByExcel = '/zbu/tCounselor/updateByExcel',
   exportXls = '/zbu/tCounselor/exportXls',
 }
 /**
@@ -21,6 +22,10 @@ export const getExportUrl = Api.exportXls;
  * 导入api
  */
 export const getImportUrl = Api.importExcel;
+/**
+ * 更新api（按辅导员工号匹配更新）
+ */
+export const getUpdateUrl = Api.updateByExcel;
 /**
  * 列表接口
  * @param params

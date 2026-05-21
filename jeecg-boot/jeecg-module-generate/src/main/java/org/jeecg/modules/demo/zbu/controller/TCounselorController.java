@@ -588,4 +588,86 @@ public class TCounselorController extends JeecgController<TCounselor, ITCounselo
 		return Result.OK(counselor);
 	}
 
+	/**
+	 * 通过Excel更新辅导员信息（按辅导员工号匹配）
+	 */
+	@RequiresPermissions("zbu:t_counselor:importExcel")
+	@RequestMapping(value = "/updateByExcel", method = RequestMethod.POST)
+	public Result<?> updateByExcel(HttpServletRequest request) {
+		try {
+			MultipartHttpServletRequest multipartRequest = (MultipartHttpServletRequest) request;
+			Map<String, MultipartFile> fileMap = multipartRequest.getFileMap();
+			if (fileMap.isEmpty()) {
+				return Result.error("请选择要上传的Excel文件！");
+			}
+
+			int updateCount = 0;
+			List<String> failMsgList = new ArrayList<>();
+
+			for (Map.Entry<String, MultipartFile> entity : fileMap.entrySet()) {
+				MultipartFile file = entity.getValue();
+				if (file.isEmpty()) continue;
+
+				ImportParams params = new ImportParams();
+				params.setTitleRows(2);
+				params.setHeadRows(1);
+				params.setNeedSave(false);
+
+				List<TCounselor> list = ExcelImportUtil.importExcel(file.getInputStream(), TCounselor.class, params);
+
+				for (int i = 0; i < list.size(); i++) {
+					TCounselor tb = list.get(i);
+					int rowNum = i + 3;
+
+					if (oConvertUtils.isEmpty(tb.getCounselorId())) {
+						failMsgList.add("第" + rowNum + "行：辅导员工号为空，跳过更新");
+						continue;
+					}
+
+					// 按辅导员工号查找已有记录
+					QueryWrapper<TCounselor> queryWrapper = new QueryWrapper<>();
+					queryWrapper.eq("counselor_id", tb.getCounselorId());
+					TCounselor exist = tCounselorService.getOne(queryWrapper);
+
+					if (exist == null) {
+						failMsgList.add("第" + rowNum + "行：辅导员工号【" + tb.getCounselorId() + "】不存在，无法更新");
+						continue;
+					}
+
+					boolean updated = false;
+					if (oConvertUtils.isNotEmpty(tb.getCounselorName())) {
+						exist.setCounselorName(tb.getCounselorName());
+						updated = true;
+					}
+					if (oConvertUtils.isNotEmpty(tb.getCollegeId())) {
+						exist.setCollegeId(tb.getCollegeId());
+						updated = true;
+					}
+					if (oConvertUtils.isNotEmpty(tb.getContact())) {
+						exist.setContact(tb.getContact());
+						updated = true;
+					}
+					if (oConvertUtils.isNotEmpty(tb.getStatus())) {
+						exist.setStatus(tb.getStatus());
+						updated = true;
+					}
+
+					if (updated) {
+						tCounselorService.updateById(exist);
+						updateCount++;
+					} else {
+						failMsgList.add("第" + rowNum + "行：辅导员工号【" + tb.getCounselorId() + "】未提供任何要更新的字段，跳过");
+					}
+				}
+			}
+
+			String successMsg = "更新完成！成功更新【" + updateCount + "】条记录";
+			return ImportErrorExportUtil.buildErrorResult(failMsgList, successMsg, uploadPath, "辅导员表");
+
+		} catch (Exception e) {
+			log.error("通过Excel更新辅导员失败", e);
+			return Result.error("更新失败：" + e.getMessage());
+		}
+	}
+
 }

@@ -1,5 +1,4 @@
 package org.jeecg.modules.demo.zbu.entity;
-
 import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.util.Date;
@@ -19,7 +18,6 @@ import org.jeecg.common.aspect.annotation.Dict;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
-
 /**
  * @Description: 班级表
  * @Author: jeecg-boot
@@ -33,7 +31,6 @@ import lombok.experimental.Accessors;
 @Schema(description="班级表")
 public class TClass implements Serializable {
     private static final long serialVersionUID = 1L;
-
     /**主键*/
     @TableId(type = IdType.ASSIGN_ID)
     @Schema(description = "主键")
@@ -51,17 +48,19 @@ public class TClass implements Serializable {
     @Dict(dictTable = "t_major", dicCode = "id", dicText = "major_name")
     @Schema(description = "所属专业")
     private java.lang.String majorId;
-    /**辅导员*/
-    @Excel(name = "辅导员", width = 15, dictTable = "t_counselor", dicCode = "id", dicText = "counselor_name")
+    /**辅导员主键ID*/
+    
     @Dict(dictTable = "t_counselor", dicCode = "id", dicText = "counselor_name")
     @Schema(description = "辅导员")
     private java.lang.String counselorId;
     /**辅导员名称（用于搜索，不映射数据库）*/
     @TableField(exist = false)
+	@Excel(name = "辅导员", width = 15)
     @Schema(description = "辅导员名称")
     private java.lang.String counselorName;
     /**辅导员工号*/
     @TableField(exist = false)
+	@Excel(name = "辅导员工号", width = 15)
     @Schema(description = "辅导员工号")
     private java.lang.String counselorNo;
     /**创建日期*/

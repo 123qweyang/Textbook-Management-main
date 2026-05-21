@@ -45,9 +45,10 @@
   import {BasicTable, useTable, TableAction} from '/@/components/Table';
   import {useModal} from '/@/components/Modal';
   import { useListPage } from '/@/hooks/system/useListPage'
+import { useMethods } from '/@/hooks/system/useMethods'
   import TStudentModal from './components/TStudentModal.vue'
   import {columns, searchFormSchema, superQuerySchema} from './TStudent.data';
-  import {list, deleteOne, batchDelete, getImportUrl,getExportUrl,getMajorList,getClassList } from './TStudent.api';
+  import {list, deleteOne, batchDelete, getImportUrl, getUpdateUrl, getExportUrl, getMajorList, getClassList } from './TStudent.api';
   import { downloadFile } from '/@/utils/common/renderUtils';
   import { useUserStore } from '/@/store/modules/user';
   import { useMessage } from '/@/hooks/web/useMessage';
@@ -112,6 +113,11 @@
   })
 
   const [registerTable, {reload},{ rowSelection, selectedRowKeys }] = tableContext
+// 更新Excel上传
+const { handleImportXls } = useMethods();
+function onUpdateXls(file) {
+  return handleImportXls(file, getUpdateUrl, reload);
+}
 
   // 高级查询配置
   const superQueryConfig = reactive(superQuerySchema);

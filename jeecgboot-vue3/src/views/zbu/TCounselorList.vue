@@ -7,6 +7,7 @@
           <a-button type="primary" v-auth="'zbu:t_counselor:add'" @click="handleAdd" preIcon="ant-design:plus-outlined"> 新增</a-button>
           <a-button  type="primary" v-auth="'zbu:t_counselor:exportXls'" preIcon="ant-design:export-outlined" @click="onExportXls"> 导出</a-button>
           <j-upload-button type="primary" v-auth="'zbu:t_counselor:importExcel'" preIcon="ant-design:import-outlined" @click="onImportXls">导入</j-upload-button>
+          <j-upload-button type="primary" v-auth="'zbu:t_counselor:importExcel'" preIcon="ant-design:edit-outlined" @click="onUpdateXls">更新</j-upload-button>
 
           <a-dropdown v-if="selectedRowKeys.length > 0">
               <template #overlay>
@@ -42,9 +43,10 @@
   import {BasicTable, useTable, TableAction} from '/@/components/Table';
   import {useModal} from '/@/components/Modal';
   import { useListPage } from '/@/hooks/system/useListPage'
+import { useMethods } from '/@/hooks/system/useMethods'
   import TCounselorModal from './components/TCounselorModal.vue'
   import {columns, searchFormSchema, superQuerySchema} from './TCounselor.data';
-  import {list, deleteOne, batchDelete, getImportUrl,getExportUrl} from './TCounselor.api';
+  import {list, deleteOne, batchDelete, getImportUrl, getUpdateUrl, getExportUrl} from './TCounselor.api';
   import { downloadFile } from '/@/utils/common/renderUtils';
   import { useUserStore } from '/@/store/modules/user';
   import { useMessage } from '/@/hooks/web/useMessage';
@@ -102,6 +104,11 @@
   })
 
   const [registerTable, {reload},{ rowSelection, selectedRowKeys }] = tableContext
+// 更新Excel上传（复用导入的上传处理逻辑）
+const { handleImportXls } = useMethods();
+function onUpdateXls(file) {
+  return handleImportXls(file, getUpdateUrl, reload);
+}
 
   // 高级查询配置
   const superQueryConfig = reactive(superQuerySchema);

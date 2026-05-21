@@ -948,6 +948,146 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 	}
 
 	/**
+	 * 通过Excel更新学生信息（按学号匹配）
+	 */
+	@RequiresPermissions("zbu:t_student:importExcel")
+	@RequestMapping(value = "/updateByExcel", method = RequestMethod.POST)
+	public Result<?> updateByExcel(HttpServletRequest request) {
+		try {
+			MultipartHttpServletRequest multipartRequest = (MultipartHttpServletRequest) request;
+			Map<String, MultipartFile> fileMap = multipartRequest.getFileMap();
+			if (fileMap.isEmpty()) {
+				return Result.error("请选择要上传的Excel文件！");
+			}
+
+			int updateCount = 0;
+			List<String> failMsgList = new ArrayList<>();
+
+			for (Map.Entry<String, MultipartFile> entry : fileMap.entrySet()) {
+				MultipartFile file = entry.getValue();
+				if (file.isEmpty()) continue;
+
+				ImportParams params = new ImportParams();
+				params.setTitleRows(2);
+				params.setHeadRows(1);
+				params.setNeedSave(false);
+
+				List<TStudent> list = ExcelImportUtil.importExcel(file.getInputStream(), TStudent.class, params);
+
+				for (int i = 0; i < list.size(); i++) {
+					TStudent tb = list.get(i);
+					int rowNum = i + 3;
+
+					// 学号必填
+					if (oConvertUtils.isEmpty(tb.getStudentId())) {
+						failMsgList.add("第" + rowNum + "行：学号为空，跳过更新");
+						continue;
+					}
+					tb.setStudentId(tb.getStudentId().trim());
+
+					// 按学号查找已有记录
+					QueryWrapper<TStudent> queryWrapper = new QueryWrapper<>();
+					queryWrapper.eq("student_id", tb.getStudentId());
+					TStudent exist = tStudentService.getOne(queryWrapper);
+					if (exist == null) {
+						failMsgList.add("第" + rowNum + "行：学号【" + tb.getStudentId() + "】不存在，无法更新");
+						continue;
+					}
+
+					boolean updated = false;
+					if (oConvertUtils.isNotEmpty(tb.getStudentName())) {
+						exist.setStudentName(tb.getStudentName().trim());
+						updated = true;
+					}
+
+					// 专业校验（兼容名称/ID）
+					String majorIdInput = tb.getMajorId();
+					String resolvedMajorId = null;
+					if (oConvertUtils.isNotEmpty(majorIdInput)) {
+						TMajor major = tMajorService.getById(majorIdInput);
+						if (major == null) {
+							major = tMajorService.getOne(new LambdaQueryWrapper<TMajor>()
+									.eq(TMajor::getMajorName, majorIdInput.trim()));
+						}
+						if (major == null) {
+							failMsgList.add("第" + rowNum + "行：专业【" + majorIdInput + "】不存在（学号：" + tb.getStudentId() + "），跳过更新");
+							continue;
+						}
+						resolvedMajorId = major.getId();
+						updated = true;
+					}
+
+					// 班级校验（兼容名称/ID）
+					String classIdInput = tb.getClassId();
+					String resolvedClassId = null;
+					if (oConvertUtils.isNotEmpty(classIdInput)) {
+						TClass clazz = tClassService.getById(classIdInput);
+						if (clazz == null) {
+							clazz = tClassService.getOne(new LambdaQueryWrapper<TClass>()
+									.eq(TClass::getClassName, classIdInput.trim()));
+						}
+						if (clazz == null) {
+							failMsgList.add("第" + rowNum + "行：班级【" + classIdInput + "】不存在（学号：" + tb.getStudentId() + "），跳过更新");
+							continue;
+						}
+						resolvedClassId = clazz.getId();
+						updated = true;
+					}
+
+					// 记录变更前的专业/班级
+					String oldMajorId = exist.getMajorId();
+					String oldClassId = exist.getClassId();
+
+					// 应用专业/班级更新
+					if (resolvedMajorId != null) exist.setMajorId(resolvedMajorId);
+					if (resolvedClassId != null) exist.setClassId(resolvedClassId);
+					if (oConvertUtils.isNotEmpty(tb.getStatus())) {
+						exist.setStatus(tb.getStatus());
+						updated = true;
+					}
+					if (oConvertUtils.isNotEmpty(tb.getAdmissionYear())) {
+						exist.setAdmissionYear(tb.getAdmissionYear());
+						updated = true;
+					}
+
+					if (updated) {
+						tStudentService.updateById(exist);
+						updateCount++;
+
+						// 检测专业/班级是否变更，若变更则生成当前学年征订记录
+						String newMajorId = exist.getMajorId();
+						String newClassId = exist.getClassId();
+						boolean majorChanged = (oldMajorId == null && newMajorId != null)
+								|| (oldMajorId != null && !oldMajorId.equals(newMajorId));
+						boolean classChanged = (oldClassId == null && newClassId != null)
+								|| (oldClassId != null && !oldClassId.equals(newClassId));
+
+						if (majorChanged || classChanged) {
+							log.info("学生{}（学号{}）通过Excel更新后专业/班级变更：专业 {} -> {}，班级 {} -> {}",
+									exist.getId(), exist.getStudentId(),
+									oldMajorId, newMajorId, oldClassId, newClassId);
+							try {
+								generateCurrentYearSubscription(exist);
+							} catch (Exception e) {
+								log.warn("更新学生{}后生成当前学年征订记录失败：{}", exist.getStudentId(), e.getMessage());
+							}
+						}
+					} else {
+						failMsgList.add("第" + rowNum + "行：学号【" + tb.getStudentId() + "】未提供任何要更新的字段，跳过");
+					}
+				}
+			}
+
+			String successMsg = "更新完成！成功更新【" + updateCount + "】条记录";
+			return ImportErrorExportUtil.buildErrorResult(failMsgList, successMsg, uploadPath, "学生表");
+
+		} catch (Exception e) {
+			log.error("通过Excel更新学生失败", e);
+			return Result.error("更新失败：" + e.getMessage());
+		}
+	}
+
+	/**
 	 * 登录后获取当前用户的学生信息
 	 */
 	@Operation(summary = "获取当前登录学生的信息")

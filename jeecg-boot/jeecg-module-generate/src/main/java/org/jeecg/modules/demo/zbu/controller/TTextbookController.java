@@ -109,7 +109,27 @@ public class TTextbookController extends JeecgController<TTextbook, ITTextbookSe
 			queryWrapper.like("textbook_name", tTextbook.getTextbookName());
 		}
 
-		queryWrapper.orderByDesc("create_time");
+	// 动态排序：支持前端点击列头排序（前端传驼峰，转为下划线）
+		String column = req.getParameter("column");
+		String order = req.getParameter("order");
+		if (oConvertUtils.isNotEmpty(column) && oConvertUtils.isNotEmpty(order)) {
+			Set<String> allowedColumns = new HashSet<>(Arrays.asList(
+					"sectionCode", "businessCode", "isbn", "textbookName",
+					"enableYear", "enableSemester", "price", "discount",
+					"publisher", "author", "status", "createTime", "updateTime"));
+			if (allowedColumns.contains(column)) {
+				String dbColumn = column.replaceAll("([A-Z])", "_$1").toLowerCase();
+				if ("asc".equalsIgnoreCase(order)) {
+					queryWrapper.orderByAsc(dbColumn);
+				} else {
+					queryWrapper.orderByDesc(dbColumn);
+				}
+			} else {
+				queryWrapper.orderByDesc("create_time");
+			}
+		} else {
+			queryWrapper.orderByDesc("create_time");
+		}
 		log.info("教材表查询 - 启用学年: {}", enableYear);
 
 		Page<TTextbook> page = new Page<TTextbook>(pageNo, pageSize);

@@ -26,6 +26,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.jeecgframework.poi.excel.ExcelImportUtil;
 import org.jeecgframework.poi.excel.def.NormalExcelConstants;
 import org.jeecgframework.poi.excel.entity.ExportParams;
+import org.jeecgframework.poi.excel.entity.enmus.ExcelType;
+import org.apache.shiro.SecurityUtils;
+import org.jeecg.common.system.vo.LoginUser;
 import org.jeecgframework.poi.excel.entity.ImportParams;
 import org.jeecgframework.poi.excel.view.JeecgEntityExcelView;
 import org.jeecg.common.system.base.controller.JeecgController;
@@ -283,10 +286,130 @@ public class TClassController extends JeecgController<TClass, ITClassService> {
 	 * @param request
 	 * @param tClass
 	 */
+	/**
+	 * 通过Excel更新班级辅导员信息（按班级编码匹配）
+	 */
+	@RequiresPermissions("zbu:t_class:importExcel")
+	@RequestMapping(value = "/updateByExcel", method = RequestMethod.POST)
+	public Result<?> updateByExcel(HttpServletRequest request) {
+		try {
+			MultipartHttpServletRequest multipartRequest = (MultipartHttpServletRequest) request;
+			Map<String, MultipartFile> fileMap = multipartRequest.getFileMap();
+			if (fileMap.isEmpty()) {
+				return Result.error("请选择要上传的Excel文件！");
+			}
+
+			int updateCount = 0;
+			List<String> failMsgList = new ArrayList<>();
+
+			for (Map.Entry<String, MultipartFile> entity : fileMap.entrySet()) {
+				MultipartFile file = entity.getValue();
+				if (file.isEmpty()) continue;
+
+				ImportParams params = new ImportParams();
+				params.setTitleRows(2);
+				params.setHeadRows(1);
+				params.setNeedSave(false);
+
+				List<TClass> list = ExcelImportUtil.importExcel(file.getInputStream(), TClass.class, params);
+
+				for (int i = 0; i < list.size(); i++) {
+					TClass tb = list.get(i);
+					int rowNum = i + 3;
+
+					// 班级编码必填
+					if (oConvertUtils.isEmpty(tb.getClassCode())) {
+						failMsgList.add("第" + rowNum + "行：班级编码为空，跳过更新");
+						continue;
+					}
+
+					// 按班级编码查找
+					QueryWrapper<TClass> queryWrapper = new QueryWrapper<>();
+					queryWrapper.eq("class_code", tb.getClassCode());
+					TClass exist = tClassService.getOne(queryWrapper);
+					if (exist == null) {
+						failMsgList.add("第" + rowNum + "行：班级编码【" + tb.getClassCode() + "】不存在，无法更新");
+						continue;
+					}
+
+					String counselorNoInput = tb.getCounselorNo();
+					String counselorNameInput = tb.getCounselorName();
+
+					// 辅导员工号和姓名均为空则跳过
+					if (oConvertUtils.isEmpty(counselorNoInput) && oConvertUtils.isEmpty(counselorNameInput)) {
+						failMsgList.add("第" + rowNum + "行：班级编码【" + tb.getClassCode() + "】未提供辅导员信息，跳过更新");
+						continue;
+					}
+
+					if (oConvertUtils.isEmpty(counselorNoInput)) {
+						failMsgList.add("第" + rowNum + "行：辅导员工号为空（编码：" + tb.getClassCode() + "），跳过更新");
+						continue;
+					}
+					if (oConvertUtils.isEmpty(counselorNameInput)) {
+						failMsgList.add("第" + rowNum + "行：辅导员姓名为空（编码：" + tb.getClassCode() + "），跳过更新");
+						continue;
+					}
+
+					// 按工号查找辅导员
+					QueryWrapper<TCounselor> counselorWrapper = new QueryWrapper<>();
+					counselorWrapper.eq("counselor_id", counselorNoInput);
+					TCounselor counselor = tCounselorService.getOne(counselorWrapper);
+					if (counselor == null) {
+						failMsgList.add("第" + rowNum + "行：辅导员工号【" + counselorNoInput + "】不存在（编码：" + tb.getClassCode() + "），跳过更新");
+						continue;
+					}
+
+					// 验证姓名匹配
+					if (!counselor.getCounselorName().equals(counselorNameInput)) {
+						failMsgList.add("第" + rowNum + "行：辅导员姓名【" + counselorNameInput + "】与工号【" + counselorNoInput + "】不匹配（实际姓名：" + counselor.getCounselorName() + "）（编码：" + tb.getClassCode() + "），跳过更新");
+						continue;
+					}
+
+					// 更新辅导员信息
+					exist.setCounselorId(counselor.getId());
+					tClassService.updateById(exist);
+					updateCount++;
+				}
+			}
+
+			String successMsg = "更新完成！成功更新【" + updateCount + "】条记录";
+			return ImportErrorExportUtil.buildErrorResult(failMsgList, successMsg, uploadPath, "班级表");
+
+		} catch (Exception e) {
+			log.error("通过Excel更新班级失败", e);
+			return Result.error("更新失败：" + e.getMessage());
+		}
+	}
+
 	@RequiresPermissions("zbu:t_class:exportXls")
 	@RequestMapping(value = "/exportXls")
 	public ModelAndView exportXls(HttpServletRequest request, TClass tClass) {
-		return super.exportXls(request, tClass, TClass.class, "班级表");
+		// 先用父类方法生成查询条件，获取数据
+		QueryWrapper<TClass> queryWrapper = QueryGenerator.initQueryWrapper(tClass, request.getParameterMap());
+		List<TClass> exportList = tClassService.list(queryWrapper);
+
+		// 填充辅导员姓名和工号
+		for (TClass record : exportList) {
+			if (record.getCounselorId() != null && !record.getCounselorId().isEmpty()) {
+				try {
+					String sql = "SELECT counselor_name, counselor_id FROM t_counselor WHERE id = ? LIMIT 1";
+					Map<String, Object> counselorInfo = jdbcTemplate.queryForMap(sql, record.getCounselorId());
+					record.setCounselorName((String) counselorInfo.get("counselor_name"));
+					record.setCounselorNo((String) counselorInfo.get("counselor_id"));
+				} catch (Exception e) {
+					log.warn("查询辅导员信息失败：{}", e.getMessage());
+				}
+			}
+		}
+
+		LoginUser sysUser = (LoginUser) SecurityUtils.getSubject().getPrincipal();
+		ModelAndView mv = new ModelAndView(new JeecgEntityExcelView());
+		mv.addObject(NormalExcelConstants.FILE_NAME, "班级表");
+		mv.addObject(NormalExcelConstants.CLASS, TClass.class);
+		mv.addObject(NormalExcelConstants.PARAMS,
+				new ExportParams("班级表报表", "导出人:" + sysUser.getRealname(), "班级表", ExcelType.XSSF));
+		mv.addObject(NormalExcelConstants.DATA_LIST, exportList);
+		return mv;
 	}
 
 	/**
@@ -373,19 +496,39 @@ public class TClassController extends JeecgController<TClass, ITClassService> {
 						continue;
 					}
 
-					// 5.5 辅导员空值校验
-					if (oConvertUtils.isEmpty(clazz.getCounselorId())) {
-						failMsgList.add("第" + totalRow + "行：辅导员为空（编码：" + classCode + "），跳过导入");
+					// 5.5 辅导员工号/姓名校验
+					String counselorNoInput = clazz.getCounselorNo();
+					String counselorNameInput = clazz.getCounselorName(); // Excel中"辅导员"列存的是姓名
+
+					if (oConvertUtils.isEmpty(counselorNoInput)) {
+						failMsgList.add("第" + totalRow + "行：辅导员工号为空（编码：" + classCode + "），跳过导入");
+						continue;
+					}
+					if (oConvertUtils.isEmpty(counselorNameInput)) {
+						failMsgList.add("第" + totalRow + "行：辅导员姓名为空（编码：" + classCode + "），跳过导入");
 						continue;
 					}
 
-					// 5.6 验证辅导员是否真实存在
-					TCounselor counselor = tCounselorService.getById(clazz.getCounselorId());
+					// 5.6 按辅导员工号查询辅导员
+					QueryWrapper<TCounselor> counselorWrapper = new QueryWrapper<>();
+					counselorWrapper.eq("counselor_id", counselorNoInput);
+					TCounselor counselor = tCounselorService.getOne(counselorWrapper);
 					if (counselor == null) {
-						failMsgList.add("第" + totalRow + "行：辅导员ID【" + clazz.getCounselorId() + "】不存在（编码：" + classCode
+						failMsgList.add("第" + totalRow + "行：辅导员工号【" + counselorNoInput + "】不存在（编码：" + classCode
 								+ "），跳过导入");
 						continue;
 					}
+
+					// 5.7 验证辅导员姓名与工号是否匹配
+					if (!counselor.getCounselorName().equals(counselorNameInput)) {
+						failMsgList.add("第" + totalRow + "行：辅导员姓名【" + counselorNameInput + "】与工号【"
+								+ counselorNoInput + "】不匹配（实际姓名：" + counselor.getCounselorName()
+								+ "）（编码：" + classCode + "），跳过导入");
+						continue;
+					}
+
+					// 将辅导员主键ID存入班级表
+					clazz.setCounselorId(counselor.getId());
 
 					// 5.7 检查Excel内部是否有重复的班级编码
 					if (classCodesInFile.contains(classCode)) {

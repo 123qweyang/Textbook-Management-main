@@ -533,6 +533,7 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 			}
 
 			String whereClause = whereConditions.isEmpty() ? "" : " WHERE " + String.join(" AND ", whereConditions);
+				String andClause = whereConditions.isEmpty() ? "" : " AND " + String.join(" AND ", whereConditions);
 
 			List<Map<String, Object>> subList = new ArrayList<>();
 			if (isAdmin) {
@@ -577,7 +578,7 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 				String studentIdInClause = String.join(",",
 						studentIds.stream().map(id -> "'" + id + "'").collect(Collectors.toList()));
 				subList = jdbcTemplate.queryForList("SELECT * FROM v_subscription_with_details WHERE student_id IN ("
-						+ studentIdInClause + ")" + (whereClause.isEmpty() ? "" : whereClause)
+						+ studentIdInClause + ")" + andClause
 						+ " ORDER BY createTime DESC");
 				log.info("辅导员{}模式，查询到管理班级下{}条征订记录", counselor.getCounselorName(), subList.size());
 			} else {
