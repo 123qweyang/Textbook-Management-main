@@ -36,7 +36,7 @@ public class TReceive implements Serializable {
     @Schema(description = "主键")
     private java.lang.String id;
     /**领取操作人*/
-    @Excel(name = "领取操作人", width = 15, dictTable = "t_student", dicCode = "id", dicText = "student_id")
+    @Excel(name = "学号", width = 15, dictTable = "t_student", dicCode = "id", dicText = "student_id")
     @Dict(dictTable = "t_student", dicCode = "id", dicText = "student_id")
     @Schema(description = "领取操作人")
     private java.lang.String receiveOperator;
@@ -58,6 +58,17 @@ public class TReceive implements Serializable {
     @Dict(dicCode = "receive_status")
     @Schema(description = "领取状态")
     private java.lang.String receiveStatus;
+    /**征订学年*/
+    @TableField(exist = false)
+    @Excel(name = "征订学年", width = 15)
+    @Schema(description = "征订学年")
+    private java.lang.String subscriptionYear;
+    /**征订学期*/
+    @TableField(exist = false)
+    @Excel(name = "征订学期", width = 15)
+    @Dict(dicCode = "semester")
+    @Schema(description = "征订学期")
+    private java.lang.String subscriptionSemester;
     /**领取时间*/
     @Excel(name = "领取时间", width = 20, format = "yyyy-MM-dd HH:mm:ss")
     @JsonFormat(timezone = "GMT+8",pattern = "yyyy-MM-dd HH:mm:ss")

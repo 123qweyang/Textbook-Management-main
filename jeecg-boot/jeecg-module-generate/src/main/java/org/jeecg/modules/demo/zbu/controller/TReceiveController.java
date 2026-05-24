@@ -32,6 +32,7 @@ import org.jeecg.modules.system.service.ISysUserService;
 import org.jeecgframework.poi.excel.ExcelImportUtil;
 import org.jeecgframework.poi.excel.def.NormalExcelConstants;
 import org.jeecgframework.poi.excel.entity.ExportParams;
+import org.jeecgframework.poi.excel.entity.enmus.ExcelType;
 import org.jeecgframework.poi.excel.entity.ImportParams;
 import org.jeecgframework.poi.excel.view.JeecgEntityExcelView;
 import org.jeecg.common.system.base.controller.JeecgController;
@@ -282,7 +283,7 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 				// 账单已存在，更新领取状态为已领取
 				StudentBill billUpdate = new StudentBill();
 				billUpdate.setId(existingBill.getId());
-				billUpdate.setReceiveStatus("已领取");
+				billUpdate.setReceiveStatus("1");
 				billUpdate.setUpdateTime(new Date());
 				boolean updateSuccess = studentBillService.updateById(billUpdate);
 				if (updateSuccess) {
@@ -293,7 +294,16 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 			}
 
 			// 创建新账单
-			TMajor major = tMajorService.getById(subscription.getMajorId());
+			// 从学生当前信息获取专业和班级
+					TStudent billStudent = tStudentService.lambdaQuery()
+							.eq(TStudent::getStudentId, studentNo).one();
+					TMajor major = billStudent != null
+							? tMajorService.getById(billStudent.getMajorId()) : null;
+					String className = "";
+					if (billStudent != null && oConvertUtils.isNotEmpty(billStudent.getClassId())) {
+						TClass tClass = tClassService.getById(billStudent.getClassId());
+						if (tClass != null) className = tClass.getClassName();
+					}
 			BigDecimal price = textbook != null && textbook.getPrice() != null ? textbook.getPrice() : BigDecimal.ZERO;
 			BigDecimal discount = textbook != null && textbook.getDiscount() != null ? textbook.getDiscount() : new BigDecimal("1");
 			BigDecimal discountPrice = price.multiply(discount).setScale(2, java.math.RoundingMode.HALF_UP);
@@ -304,10 +314,18 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 			newBill.setSubscriptionYear(subscription.getSubscriptionYear());
 			newBill.setSubscriptionSemester(subscription.getSubscriptionSemester());
 			newBill.setTextbookName(textbookName);
+				newBill.setIsbn(textbook.getIsbn() != null ? textbook.getIsbn() : "");
+			newBill.setClassName(className);
+			String collegeName = "";
+				if (major != null) {
+					TCollege college = tCollegeService.getById(major.getCollegeId());
+					if (college != null) collegeName = college.getCollegeName();
+				}
+				newBill.setCollegeName(collegeName);
 			newBill.setPrice(price);
 			newBill.setDiscountPrice(discountPrice);
 			newBill.setSubscribeStatus(subscription.getSubscribeStatus());
-			newBill.setReceiveStatus("已领取");
+			newBill.setReceiveStatus("1");
 			newBill.setRemark("");
 			newBill.setCreateTime(new Date());
 			newBill.setUpdateTime(new Date());
@@ -378,8 +396,10 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 	@RequiresPermissions("zbu:t_receive:exportXls")
 	@RequestMapping(value = "/exportXls")
 	public ModelAndView exportXls(HttpServletRequest request, TReceive tReceive) {
+		LoginUser sysUser = (LoginUser) SecurityUtils.getSubject().getPrincipal();
+		String exporter = (sysUser != null) ? sysUser.getRealname() : "未知";
 		ModelAndView mv = new ModelAndView(new JeecgEntityExcelView());
-		ExportParams exportParams = new ExportParams("领取表", "领取表数据");
+		ExportParams exportParams = new ExportParams("领取表报表", "导出人:" + exporter, "领取表", ExcelType.XSSF);
 		mv.addObject(NormalExcelConstants.PARAMS, exportParams);
 		mv.addObject(NormalExcelConstants.CLASS, TReceive.class);
 
@@ -421,6 +441,12 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 			// 3. 按角色查询（使用MyBatis-Plus代替JdbcTemplate）
 			QueryWrapper<TReceive> queryWrapper = new QueryWrapper<>();
 			queryWrapper.orderByDesc("create_time");
+			// 征订学年筛选：有则通过征订表过滤，无则查全部
+			String subscriptionYear = request.getParameter("subscriptionYear");
+			if (oConvertUtils.isNotEmpty(subscriptionYear)) {
+				queryWrapper.inSql("subscription_id",
+						"SELECT id FROM t_subscription WHERE subscription_year = '" + subscriptionYear + "'");
+			}
 
 			if (isAdmin) {
 				// 管理员：导出全部
@@ -456,7 +482,7 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 			log.error("领取表导出失败", e);
 		}
 
-		// 填充学生姓名和教材名称
+		// 填充学生姓名、教材名称、征订学年、征订学期
 		for (TReceive receive : list) {
 			// 填充学生姓名
 			if (oConvertUtils.isNotEmpty(receive.getReceiveOperator())) {
@@ -469,7 +495,7 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 					log.warn("查询学生姓名失败：{}", e.getMessage());
 				}
 			}
-			// 填充教材名称
+			// 填充教材名称、征订学年、征订学期
 			if (oConvertUtils.isNotEmpty(receive.getSubscriptionId())) {
 				try {
 					TSubscription subscription = tSubscriptionService.getById(receive.getSubscriptionId());
@@ -478,6 +504,19 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 						if (textbook != null) {
 							receive.setTextbookName(textbook.getTextbookName());
 						}
+						receive.setSubscriptionYear(subscription.getSubscriptionYear());
+				receive.setSubscriptionYear(subscription.getSubscriptionYear());
+					String semester = subscription.getSubscriptionSemester();
+					if (semester != null) {
+						String s = semester.trim();
+						if ("1".equals(s) || "一".equals(s) || "第一学期".equals(s)) {
+							receive.setSubscriptionSemester("一");
+						} else if ("2".equals(s) || "二".equals(s) || "第二学期".equals(s)) {
+							receive.setSubscriptionSemester("二");
+						} else {
+							receive.setSubscriptionSemester(semester);
+						}
+					}
 					}
 				} catch (Exception e) {
 					log.warn("查询教材名称失败：{}", e.getMessage());
@@ -634,10 +673,7 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 
 			// 7. 同步更新个人账单（领取后创建/更新账单，取消领取时删除账单）
 			if (receiveUpdateSuccess) {
-				Map<String, String> statusMap = new HashMap<>();
-				statusMap.put("1", "已领取");
-				statusMap.put("0", "未领取");
-				String billReceiveStatus = statusMap.getOrDefault(receiveStatus, receiveStatus);
+				String billReceiveStatus = receiveStatus;
 
 				QueryWrapper<TReceive> receiveQuery = new QueryWrapper<>();
 				receiveQuery.in("id", ids);
@@ -699,7 +735,16 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 									receive.getId(), studentNo, textbookName, billReceiveStatus);
 						}
 					} else if ("1".equals(receiveStatus) && textbook != null) {
-						TMajor major = tMajorService.getById(subscription.getMajorId());
+						// 从学生当前信息获取专业和班级
+					TStudent billStudent = tStudentService.lambdaQuery()
+							.eq(TStudent::getStudentId, studentNo).one();
+					TMajor major = billStudent != null
+							? tMajorService.getById(billStudent.getMajorId()) : null;
+					String className = "";
+					if (billStudent != null && oConvertUtils.isNotEmpty(billStudent.getClassId())) {
+						TClass tClass = tClassService.getById(billStudent.getClassId());
+						if (tClass != null) className = tClass.getClassName();
+					}
 						BigDecimal price = textbook.getPrice() != null ? textbook.getPrice() : BigDecimal.ZERO;
 						BigDecimal discount = textbook.getDiscount() != null ? textbook.getDiscount()
 								: new BigDecimal("1");
@@ -711,6 +756,14 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 						newBill.setSubscriptionYear(subscription.getSubscriptionYear());
 						newBill.setSubscriptionSemester(subscription.getSubscriptionSemester());
 						newBill.setTextbookName(textbookName);
+					newBill.setIsbn(textbook.getIsbn() != null ? textbook.getIsbn() : "");
+			newBill.setClassName(className);
+			String collegeName = "";
+				if (major != null) {
+					TCollege college = tCollegeService.getById(major.getCollegeId());
+					if (college != null) collegeName = college.getCollegeName();
+				}
+				newBill.setCollegeName(collegeName);
 						newBill.setPrice(price);
 						newBill.setDiscountPrice(discountPrice);
 						newBill.setSubscribeStatus(subscription.getSubscribeStatus());
@@ -812,7 +865,7 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 	@AutoLog(value = "领取表-获取我的领取记录")
 	@Operation(summary = "获取当前登录用户的领取记录", description = "管理员查所有、辅导员查管理班级、学生查自己")
 	@GetMapping(value = "/getMyReceive")
-	public Result<List<Map<String, Object>>> getMyReceive() {
+	public Result<List<Map<String, Object>>> getMyReceive(HttpServletRequest request) {
 		try {
 			// 1. 获取当前登录用户（和征订表完全一致）
 			Subject subject = SecurityUtils.getSubject();
@@ -920,6 +973,59 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 				log.info("学生模式，查询到{}条领取记录", receiveList.size());
 			}
 
+		// 填充征订学年和原始学期，用于筛选
+			for (Map<String, Object> record : receiveList) {
+				Object subIdObj = record.get("subscription_id");
+				if (subIdObj != null) {
+					try {
+						TSubscription sub = tSubscriptionService.getById(subIdObj.toString());
+						if (sub != null) {
+							record.put("subscriptionYear", sub.getSubscriptionYear());
+				String sem = sub.getSubscriptionSemester();
+					if (sem != null) {
+						String s = sem.trim();
+						if ("1".equals(s) || "一".equals(s) || "第一学期".equals(s)) sem = "1";
+						else if ("2".equals(s) || "二".equals(s) || "第二学期".equals(s)) sem = "2";
+					}
+					record.put("subscriptionSemester", sem);
+						}
+					} catch (Exception e) {
+						log.warn("填充征订学年学期失败：{}", e.getMessage());
+					}
+				}
+			}
+			// 征订学年和学期筛选（基于原始字典码）
+			String reqYear = request.getParameter("subscriptionYear");
+			String reqSemester = request.getParameter("subscriptionSemester");
+			if (oConvertUtils.isNotEmpty(reqYear) || oConvertUtils.isNotEmpty(reqSemester)) {
+				receiveList.removeIf(record -> {
+					if (oConvertUtils.isNotEmpty(reqYear)) {
+						Object yearObj = record.get("subscriptionYear");
+						if (yearObj == null || !reqYear.equals(yearObj.toString())) {
+							return true;
+						}
+					}
+					if (oConvertUtils.isNotEmpty(reqSemester)) {
+						Object semObj = record.get("subscriptionSemester");
+						if (semObj == null || !reqSemester.equals(semObj.toString())) {
+							return true;
+						}
+					}
+					return false;
+				});
+			}
+		// 征订学期归一化为显示文字（筛选后执行）
+			for (Map<String, Object> record : receiveList) {
+				Object semObj = record.get("subscriptionSemester");
+				if (semObj != null) {
+					String s = semObj.toString().trim();
+					if ("1".equals(s) || "一".equals(s) || "第一学期".equals(s)) {
+						record.put("subscriptionSemester", "一");
+					} else if ("2".equals(s) || "二".equals(s) || "第二学期".equals(s)) {
+						record.put("subscriptionSemester", "二");
+					}
+				}
+			}
 			return Result.OK("", receiveList);
 		} catch (Exception e) {
 			log.error("获取领取记录失败", e);

@@ -91,14 +91,14 @@ export const searchFormSchema: FormSchema[] = [
       const now = new Date();
       const currentYear = now.getFullYear();
       const currentMonth = now.getMonth() + 1;
-      return (currentMonth < 9) ? `${currentYear - 1}-${currentYear}` : `${currentYear}-${currentYear + 1}`;
+      return (currentMonth < 6) ? `${currentYear - 1}-${currentYear}` : `${currentYear}-${currentYear + 1}`;
     })(),
     componentProps: () => {
       const now = new Date();
       const currentYear = now.getFullYear();
       const currentMonth = now.getMonth() + 1;
       // 9月之前（1-8月）：最新一届是去年；9月之后：最新一届是本年
-      const latestGradeYear = currentMonth < 9 ? currentYear - 1 : currentYear;
+      const latestGradeYear = currentMonth < 6 ? currentYear - 1 : currentYear;
       const options: { label: string; value: string }[] = [];
       for (let i = 0; i <= 3; i++) {
         const year = latestGradeYear - i;
@@ -112,7 +112,11 @@ export const searchFormSchema: FormSchema[] = [
   {
     label: "学期",
     field: 'semester',
-    component: 'JSelectMultiple',
+    component: 'JDictSelectTag',
+    defaultValue: (() => {
+      const month = new Date().getMonth() + 1;
+      return (month >= 6 && month <= 11) ? '1' : '2';
+    })(),
     componentProps: {
       dictCode: "semester"
     },
@@ -184,7 +188,7 @@ export const formSchema: FormSchema[] = [
       const now = new Date();
       const currentYear = now.getFullYear();
       const currentMonth = now.getMonth() + 1;
-      const latestGradeYear = currentMonth < 9 ? currentYear - 1 : currentYear;
+      const latestGradeYear = currentMonth < 6 ? currentYear - 1 : currentYear;
       const options: { label: string; value: string }[] = [];
       for (let i = 0; i <= 3; i++) {
         const year = latestGradeYear - i;

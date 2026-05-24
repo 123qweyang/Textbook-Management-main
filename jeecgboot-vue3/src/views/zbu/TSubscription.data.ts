@@ -102,7 +102,7 @@ export const searchFormSchema: FormSchema[] = [
       const currentMonth = now.getMonth() + 1; // 1-12
       // 9月之前：最新一届是前一年（如2026年9月前，最新是25届）
       // 9月及之后：最新一届是当年（如2026年9月后，最新是26届）
-      let startYear = currentMonth < 9 ? currentYear - 1 : currentYear;
+      let startYear = currentMonth < 6 ? currentYear - 1 : currentYear;
       const options = [];
       for (let i = 0; i < 4; i++) {
         const year = startYear - i;
@@ -196,13 +196,19 @@ export const searchFormSchema: FormSchema[] = [
     label: "征订学年",
     field: 'subscriptionYear',
     component: 'JDictSelectTag',
+    defaultValue: (() => {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      return (currentMonth < 6) ? `${currentYear - 1}-${currentYear}` : `${currentYear}-${currentYear + 1}`;
+    })(),
     componentProps: () => {
       const now = new Date();
       const currentYear = now.getFullYear();
       const currentMonth = now.getMonth() + 1; // 1-12
 
       // 9月之前（1-8月）：最新一届是去年；9月之后（9-12月）：最新一届是本年
-      const latestGradeYear = currentMonth < 9 ? currentYear - 1 : currentYear;
+      const latestGradeYear = currentMonth < 6 ? currentYear - 1 : currentYear;
 
       // 生成4个选项：从最新一届往前推4年（包括最新一届，用于查看）
       const options = [];
@@ -227,6 +233,10 @@ export const searchFormSchema: FormSchema[] = [
     label: "征订学期",
     field: 'subscriptionSemester',
     component: 'JDictSelectTag',
+    defaultValue: (() => {
+      const month = new Date().getMonth() + 1;
+      return (month >= 6 && month <= 11) ? '1' : '2';
+    })(),
     componentProps: {
       dictCode: "semester"
     },
@@ -238,8 +248,8 @@ export const searchFormSchema: FormSchema[] = [
     component: 'JDictSelectTag',
     componentProps: {
       options: [
-        { label: '同意', value: '1' },
-        { label: '不同意', value: '0' }
+        { label: '已征订', value: '1' },
+        { label: '未征订', value: '0' }
       ],
       placeholder: '请选择征订状态'
     },

@@ -35,6 +35,18 @@ export const columns: BasicColumn[] = [
     dataIndex: 'isbn'
   },
   {
+    title: '征订学年',
+    align:"center",
+    sorter: true,
+    dataIndex: 'subscriptionYear'
+  },
+  {
+    title: '征订学期',
+    align:"center",
+    sorter: true,
+    dataIndex: 'subscriptionSemester'
+  },
+  {
     title: '领取状态',
     align:"center",
     sorter: true,
@@ -149,6 +161,46 @@ export const searchFormSchema: FormSchema[] = [
     label: '教材',
     field: 'textbookName',
     component: 'Input',
+    colProps: { span: 8 },
+  },
+  {
+    label: '征订学年',
+    field: 'subscriptionYear',
+    component: 'JDictSelectTag',
+    defaultValue: (() => {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      return (currentMonth < 6) ? `${currentYear - 1}-${currentYear}` : `${currentYear}-${currentYear + 1}`;
+    })(),
+    componentProps: () => {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      const latestGradeYear = currentMonth < 6 ? currentYear - 1 : currentYear;
+      const options: { label: string; value: string }[] = [];
+      for (let i = 0; i <= 3; i++) {
+        const year = latestGradeYear - i;
+        if (year >= 2020) {
+          options.push({ label: `${year}-${year + 1}`, value: `${year}-${year + 1}` });
+        }
+      }
+      return { options, placeholder: '请选择征订学年' };
+    },
+    colProps: { span: 8 },
+  },
+  {
+    label: '征订学期',
+    field: 'subscriptionSemester',
+    component: 'JDictSelectTag',
+    defaultValue: (() => {
+      const month = new Date().getMonth() + 1;
+      return (month >= 6 && month <= 11) ? '1' : '2';
+    })(),
+    componentProps: {
+      dictCode: 'semester',
+      placeholder: '请选择征订学期'
+    },
     colProps: { span: 8 },
   },
   // 领取状态（下拉选择）

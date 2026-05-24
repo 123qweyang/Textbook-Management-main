@@ -81,43 +81,50 @@ export function useMethods() {
   async function importXls(data, url, success) {
     const isReturn = (fileInfo) => {
       try {
-        if (fileInfo.code === 201) {
-          let {
-            message,
-            result: { msg, fileUrl, fileName },
-          } = fileInfo;
-          let href = glob.uploadUrl + fileUrl;
-          // 弹窗展示导入摘要（弹窗存在时间更长，用户不会错过信息）
-          createWarningModal({
-            title: message,
-            centered: false,
-            width: 500,
-            content: `<div>
-                                <p><strong>${msg}</strong></p>
-                                <p>错误详情文件<a href = ${href} download = ${fileName}> ${fileName} </a>已自动下载，也可点击链接重新下载。</p>
-                              </div>`,
-          });
-          // 自动触发浏览器下载（fetch + Blob 方案，不会被弹窗拦截器阻止）
-          try {
-            fetch(href)
-              .then(res => res.blob())
-              .then(blob => {
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = fileName;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
-              })
-              .catch(e => console.warn('自动下载导入错误文件失败:', e));
-          } catch (e) {
-            console.warn('自动下载导入错误文件失败:', e);
+        // 导入错误（201部分成功 / 500导入失败）统一弹窗+下载处理
+        if (fileInfo.code === 201 || fileInfo.code === 500 || fileInfo.code === 510) {
+          const msg = fileInfo.result?.msg || fileInfo.message || '导入出现错误';
+          const fileUrl = fileInfo.result?.fileUrl;
+          const fileName = fileInfo.result?.fileName;
+          const href = fileUrl ? glob.uploadUrl + fileUrl : '';
+
+          if (href && fileName) {
+            // 有错误文件可下载：弹窗+自动下载
+            createWarningModal({
+              title: fileInfo.message || '导入结果',
+              centered: false,
+              width: 500,
+              content: `<div>
+                <p><strong>${msg}</strong></p>
+                <p>错误详情文件<a href="${href}" download="${fileName}"> ${fileName} </a>已自动下载，也可点击链接重新下载。</p>
+              </div>`,
+            });
+            try {
+              fetch(href)
+                .then(res => res.blob())
+                .then(blob => {
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = fileName;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  window.URL.revokeObjectURL(url);
+                })
+                .catch(e => console.warn('自动下载导入错误文件失败:', e));
+            } catch (e) {
+              console.warn('自动下载导入错误文件失败:', e);
+            }
+          } else {
+            // 无错误文件（如意外异常）：弹窗展示错误信息
+            createWarningModal({
+              title: fileInfo.message || '导入失败',
+              centered: false,
+              width: 500,
+              content: `<div><p><strong>${msg}</strong></p></div>`,
+            });
           }
-          // 代码逻辑说明: [VUEN-2827]导入无权限，提示图标错误------------
-        } else if (fileInfo.code === 500 || fileInfo.code === 510) {
-          createMessage.error(fileInfo.message || `${data.file.name} 导入失败`);
         } else {
           createMessage.success(fileInfo.message || `${data.file.name} 文件上传成功`);
         }

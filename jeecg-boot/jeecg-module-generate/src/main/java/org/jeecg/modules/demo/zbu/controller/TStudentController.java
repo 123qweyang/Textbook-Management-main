@@ -397,7 +397,7 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 					|| (oldClassId != null && !oldClassId.equals(newClassId));
 
 			if (majorChanged || classChanged) {
-				log.info("学生{}（学号{}）专业或班级变更：专业 {} -> {}，班级 {} -> {}，开始生成当前学年征订记录",
+				log.info("学生{}（学号{}）专业或班级变更：专业 {} -> {}，班级 {} -> {}，开始生成当前学年当前学期征订记录",
 						tStudent.getId(), oldStudent.getStudentId(),
 						oldMajorId, newMajorId, oldClassId, newClassId);
 
@@ -407,7 +407,7 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 				// 5. 仅为当前学年（上下学期）生成新征订记录（旧记录保留不删除）
 				generateCurrentYearSubscription(updatedStudent);
 
-				log.info("学生{}（学号{}）转专业/班级后当前学年征订记录生成完成", updatedStudent.getId(), updatedStudent.getStudentId());
+				log.info("学生{}（学号{}）转专业/班级后当前学年当前学期征订记录生成完成", updatedStudent.getId(), updatedStudent.getStudentId());
 			}
 
 			return Result.OK("编辑成功!");
@@ -943,7 +943,7 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 
 		} catch (Exception e) {
 			log.error("Excel导入学生数据失败", e);
-			return Result.error("导入失败：" + e.getMessage());
+			List<String> failMsgList = new ArrayList<>(); failMsgList.add("导入异常：" + e.getMessage()); return ImportErrorExportUtil.buildErrorResult(failMsgList, "导入完成！成功导入0条有效数据", uploadPath, "学生表");
 		}
 	}
 
@@ -1069,7 +1069,7 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 							try {
 								generateCurrentYearSubscription(exist);
 							} catch (Exception e) {
-								log.warn("更新学生{}后生成当前学年征订记录失败：{}", exist.getStudentId(), e.getMessage());
+								log.warn("更新学生{}后生成当前学年当前学期征订记录失败：{}", exist.getStudentId(), e.getMessage());
 							}
 						}
 					} else {
@@ -1192,12 +1192,11 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 
 			// 3. 遍历教材选用记录，为该学生生成关联记录
 			for (TTextbookSelection selection : selectionList) {
-				// 3.1 防重复：检查该学生+该教材+该学年学期是否已存在征订记录
+				// 3.1 防重复：检查该学生+该教材+该学年是否已存在征订记录（不限学期）
 				QueryWrapper<TSubscription> subExistWrapper = new QueryWrapper<>();
 				subExistWrapper.eq("student_id", student.getId())
 						.eq("textbook_id", selection.getTextbookId())
-						.eq("subscription_year", selection.getSchoolYear())
-						.eq("subscription_semester", selection.getSemester());
+						.eq("subscription_year", selection.getSchoolYear());
 				if (tSubscriptionService.count(subExistWrapper) > 0) {
 					log.warn("学生{}（学号{}）已存在教材{}的征订记录，跳过",
 							student.getId(), student.getStudentId(), selection.getTextbookId());
@@ -1211,7 +1210,11 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 				subscription.setSelectionId(selection.getId()); // 关联教材选用记录ID
 				subscription.setMajorId(selection.getMajorId()); // 专业ID
 				subscription.setSubscriptionYear(selection.getSchoolYear()); // 征订学年
-				subscription.setSubscriptionSemester(selection.getSemester()); // 征订学期
+				// 统一学期格式为字典码
+					String semester = selection.getSemester() != null ? selection.getSemester().trim() : "";
+					if ("第一学期".equals(semester) || "一".equals(semester)) semester = "1";
+					else if ("第二学期".equals(semester) || "二".equals(semester)) semester = "2";
+				subscription.setSubscriptionSemester(semester); // 征订学期
 				subscription.setSubscribeStatus("0"); // 初始征订状态（未征订）
 				subscription.setRemark("");
 				subscription.setCreateTime(new Date());
@@ -1240,40 +1243,47 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 				return;
 			}
 
-			// 2. 计算当前学年（8月及之后为 year-(year+1)，8月之前为 (year-1)-year）
+			// 2. 计算当前学年和当前学期
+			// 6月~11月为第一学期，12月~5月为第二学期
 			Calendar cal = Calendar.getInstance();
 			int year = cal.get(Calendar.YEAR);
 			int month = cal.get(Calendar.MONTH) + 1;
 			String currentSchoolYear;
-			if (month >= 8) {
+			String currentSemester;
+			if (month >= 6 && month <= 11) {
 				currentSchoolYear = year + "-" + (year + 1);
+				currentSemester = "1";
+		} else if (month == 12) {
+				currentSchoolYear = year + "-" + (year + 1);
+				currentSemester = "2";
 			} else {
 				currentSchoolYear = (year - 1) + "-" + year;
+				currentSemester = "2";
 			}
-			log.info("当前学年：{}", currentSchoolYear);
+			log.info("当前学年：{}，当前学期：{}", currentSchoolYear, currentSemester);
 
-			// 3. 查询该学生新班级在当前学年的有效教材选用记录（生效状态=1）
+			// 3. 查询该学生新班级在当前学年+当前学期的有效教材选用记录（生效状态=1）
 			QueryWrapper<TTextbookSelection> selectionWrapper = new QueryWrapper<>();
 			selectionWrapper.eq("class_id", student.getClassId())
 					.eq("selection_status", "1")
-					.eq("school_year", currentSchoolYear); // 仅当前学年
+					.eq("school_year", currentSchoolYear)
+					.eq("semester", currentSemester);
 			List<TTextbookSelection> selectionList = tTextbookSelectionService.list(selectionWrapper);
 			if (selectionList.isEmpty()) {
-				log.info("学生{}（学号{}）新班级{}在当前学年{}无有效教材选用记录，跳过征订记录生成",
-						student.getId(), student.getStudentId(), student.getClassId(), currentSchoolYear);
+				log.info("学生{}（学号{}）新班级{}在当前学年{}第{}学期无有效教材选用记录，跳过征订记录生成",
+						student.getId(), student.getStudentId(), student.getClassId(), currentSchoolYear, currentSemester);
 				return;
 			}
 
-			// 4. 遍历教材选用记录，为该学生生成当前学年的征订记录
+			// 4. 遍历教材选用记录，为该学生生成当前学年当前学期的征订记录
 			for (TTextbookSelection selection : selectionList) {
-				// 4.1 防重复：检查该学生+该教材+该学年学期是否已存在征订记录
+				// 4.1 防重复：检查该学生+该教材+该学年是否已存在征订记录（不限学期）
 				QueryWrapper<TSubscription> subExistWrapper = new QueryWrapper<>();
 				subExistWrapper.eq("student_id", student.getId())
 						.eq("textbook_id", selection.getTextbookId())
-						.eq("subscription_year", selection.getSchoolYear())
-						.eq("subscription_semester", selection.getSemester());
+						.eq("subscription_year", selection.getSchoolYear());
 				if (tSubscriptionService.count(subExistWrapper) > 0) {
-					log.warn("学生{}（学号{}）已存在教材{}在{}学年第{}学期的征订记录，跳过",
+					log.warn("学生{}（学号{}）已存在教材{}在{}学年的征订记录，跳过",
 							student.getId(), student.getStudentId(), selection.getTextbookId(),
 							selection.getSchoolYear(), selection.getSemester());
 					continue;
@@ -1286,7 +1296,11 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 				subscription.setSelectionId(selection.getId());
 				subscription.setMajorId(selection.getMajorId());
 				subscription.setSubscriptionYear(selection.getSchoolYear());
-				subscription.setSubscriptionSemester(selection.getSemester());
+				// 统一学期格式为字典码
+					String semester = selection.getSemester() != null ? selection.getSemester().trim() : "";
+					if ("第一学期".equals(semester) || "一".equals(semester)) semester = "1";
+					else if ("第二学期".equals(semester) || "二".equals(semester)) semester = "2";
+				subscription.setSubscriptionSemester(semester);
 				subscription.setSubscribeStatus("0"); // 初始征订状态（未征订）
 				subscription.setRemark("");
 				subscription.setCreateTime(new Date());
@@ -1297,8 +1311,8 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 						selection.getSchoolYear(), selection.getSemester());
 			}
 		} catch (Exception e) {
-			log.error("为学生{}生成当前学年征订记录失败", student.getStudentId(), e);
-			throw new RuntimeException("转专业/班级成功，但生成当前学年征订记录失败：" + e.getMessage());
+			log.error("为学生{}生成当前学年当前学期征订记录失败", student.getStudentId(), e);
+			throw new RuntimeException("转专业/班级成功，但生成当前学年当前学期征订记录失败：" + e.getMessage());
 		}
 	}
 

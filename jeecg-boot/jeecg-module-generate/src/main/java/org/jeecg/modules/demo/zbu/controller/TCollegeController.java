@@ -287,7 +287,7 @@ public class TCollegeController extends JeecgController<TCollege, ITCollegeServi
 
 		} catch (Exception e) {
 			log.error("Excel导入学院数据失败", e);
-			return Result.error("导入失败：" + e.getMessage());
+			List<String> failMsgList = new ArrayList<>(); failMsgList.add("导入异常：" + e.getMessage()); return ImportErrorExportUtil.buildErrorResult(failMsgList, "导入完成！成功导入0条有效数据", uploadPath, "学院表");
 		}
 	}
 

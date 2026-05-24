@@ -25,7 +25,7 @@ export const columns: BasicColumn[] = [
   {
     title: '辅导员',
     align:"center",
-    dataIndex: 'counselorId_dictText'
+    dataIndex: 'counselorName'
   },
   {
     title: '辅导员工号',

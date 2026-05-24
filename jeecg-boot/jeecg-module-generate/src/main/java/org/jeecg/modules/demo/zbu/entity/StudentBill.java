@@ -49,11 +49,11 @@ public class StudentBill implements Serializable {
 	@Schema(description = "学生姓名")
 	private java.lang.String studentName;
 	/** 班级 */
-	@TableField(exist = false)
+	@Excel(name = "班级", width = 15)
 	@Schema(description = "班级")
 	private java.lang.String className;
-	/** 学院（仅搜索用） */
-	@TableField(exist = false)
+	/** 学院 */
+	@Excel(name = "学院", width = 20)
 	@Schema(description = "学院")
 	private java.lang.String collegeName;
 	/** 专业 */
@@ -90,12 +90,12 @@ public class StudentBill implements Serializable {
 	@Schema(description = "教材费用")
 	private java.math.BigDecimal discountPrice;
 	/** 征订状态 */
-	@Excel(name = "征订状态", width = 15, dictTable = "t_subscription", dicCode = "id", dicText = "subscribe_status")
+	@Excel(name = "征订状态", width = 15)
 	@Dict(dictTable = "t_subscription", dicCode = "id", dicText = "subscribe_status")
 	@Schema(description = "征订状态")
 	private java.lang.String subscribeStatus;
 	/** 领取状态 */
-	@Excel(name = "领取状态", width = 15, dictTable = "t_receive", dicCode = "id", dicText = "receive_status")
+	@Excel(name = "领取状态", width = 15)
 	@Dict(dictTable = "t_receive", dicCode = "id", dicText = "receive_status")
 	@Schema(description = "领取状态")
 	private java.lang.String receiveStatus;

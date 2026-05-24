@@ -54,7 +54,7 @@ import {ref, reactive, computed, unref, watch} from 'vue';
 import {BasicTable, useTable, TableAction} from '/@/components/Table';
 import {useListPage} from '/@/hooks/system/useListPage';
 import {columns, searchFormSchema} from './StudentBillSummary.data';
-import {summaryList, batchDelete, getCurrentSchoolYear} from './StudentBillSummary.api';
+import {summaryList, batchDelete} from './StudentBillSummary.api';
 import {useUserStore} from '/@/store/modules/user';
 import {useMessage} from '/@/hooks/web/useMessage';
 import { filterObj } from '/@/utils/common/compUtils';
@@ -88,18 +88,6 @@ const {prefix, tableContext, onExportXls} = useListPage({
   tableProps: {
     title: '学生账单汇总',
     api: async (params) => {
-      // 如果没有传征订学年参数，调用接口获取当前学年
-      if (!params.schoolYear) {
-        try {
-          const yearRes = await getCurrentSchoolYear();
-          if (yearRes && yearRes.currentSchoolYear) {
-            params.schoolYear = yearRes.currentSchoolYear;
-          }
-        } catch (e) {
-          console.warn('获取当前学年失败', e);
-        }
-      }
-
       const queryParams = {
         ...params,
         studentNo: params.studentNo || '',

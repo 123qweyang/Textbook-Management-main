@@ -42,19 +42,20 @@
 </template>
 
 <script lang="ts" name="zbu-tTextbook" setup>
-import { reactive } from 'vue';
+import { reactive, ref } from 'vue';
 import { BasicTable, useTable, TableAction } from '/@/components/Table';
 import { useModal } from '/@/components/Modal';
 import { useListPage } from '/@/hooks/system/useListPage'
 import { useMethods } from '/@/hooks/system/useMethods'
 import TTextbookModal from './components/TTextbookModal.vue'
 import { columns, searchFormSchema, superQuerySchema } from './TTextbook.data';
-import { list, deleteOne, batchDelete, getImportUrl, getUpdateUrl, getExportUrl, getCurrentSchoolYear } from './TTextbook.api';
+import { list, deleteOne, batchDelete, getImportUrl, getUpdateUrl, getExportUrl } from './TTextbook.api';
 import { getDateByPicker } from '/@/utils';
 
 // 基础变量
 const fieldPickers = reactive({});
 const queryParam = reactive<any>({});
+const isFirstQuery = ref(true);
 
 // 注册原有Modal
 const [registerModal, { openModal }] = useModal();
@@ -86,19 +87,22 @@ const { tableContext, onExportXls, onImportXls } = useListPage({
         }
       }
 
-      const merged = Object.assign({}, params, queryParam);
-
-      // 如果没有传启用学年参数，调用接口获取当前学年
-      if (!merged.enableYear) {
-        try {
-          const yearRes = await getCurrentSchoolYear();
-          if (yearRes && yearRes.currentSchoolYear) {
-            merged.enableYear = yearRes.currentSchoolYear;
-          }
-        } catch (e) {
-          console.warn('获取当前学年失败', e);
-        }
+      const merged = Object.assign({}, queryParam, params);
+      // 仅首次加载时，默认查询当前学年；取消勾选后不再强制回填
+      if (!merged.enableYear && isFirstQuery.value) {
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth() + 1;
+        merged.enableYear = (currentMonth < 6) ? `${currentYear - 1}-${currentYear}` : `${currentYear}-${currentYear + 1}`;
       }
+      isFirstQuery.value = false;
+      // 同步到 queryParam，确保导出时能带上当前搜索条件
+      Object.keys(queryParam).forEach(key => {
+        if (!(key in merged)) delete queryParam[key];
+      });
+      Object.keys(merged).forEach(key => {
+        queryParam[key] = merged[key];
+      });
 
       return merged;
     },

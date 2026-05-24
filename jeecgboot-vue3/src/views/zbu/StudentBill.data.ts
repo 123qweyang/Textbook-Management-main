@@ -173,13 +173,19 @@ export const searchFormSchema: FormSchema[] = [
     label: "征订学年",
     field: 'subscriptionYear',
     component: 'JDictSelectTag',
+    defaultValue: (() => {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      return (currentMonth < 6) ? `${currentYear - 1}-${currentYear}` : `${currentYear}-${currentYear + 1}`;
+    })(),
     componentProps: () => {
       const now = new Date();
       const currentYear = now.getFullYear();
       const currentMonth = now.getMonth() + 1; // 1-12
 
       // 9月之前（1-8月）：最新一届是去年；9月之后（9-12月）：最新一届是本年
-      const latestGradeYear = currentMonth < 9 ? currentYear - 1 : currentYear;
+      const latestGradeYear = currentMonth < 6 ? currentYear - 1 : currentYear;
 
       // 生成4个选项：从最新一届往前推4年（包括最新一届，用于查看）
       const options = [];
@@ -203,6 +209,10 @@ export const searchFormSchema: FormSchema[] = [
     label: "征订学期",
     field: 'subscriptionSemester',
     component: 'JDictSelectTag',
+    defaultValue: (() => {
+      const month = new Date().getMonth() + 1;
+      return (month >= 6 && month <= 11) ? '1' : '2';
+    })(),
     componentProps: {
       dictCode: "semester"
     },

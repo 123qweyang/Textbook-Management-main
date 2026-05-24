@@ -4,7 +4,6 @@
       @register="registerTable"
       :rowSelection="tableRowSelection"
       :form-config="tableFormConfig"
-      :class="{ 'hide-search-form': !isAdmin && !isCounselor }"
     >
       <template #tableTitle>
         <!--  修改1：所有角色显示批量修改按钮（区分文字） -->
@@ -96,7 +95,7 @@ import {columns, searchFormSchema, superQuerySchema} from './TSubscription.data'
 import {
   deleteOne, batchDelete, getImportUrl, getExportUrl, getMySubscription,
   getStudentById, getTextbookById, getMajorById, getCollegeById, batchUpdateSubscribeStatus,
-  getStudentByNo, getCurrentSchoolYear
+  getStudentByNo
 } from './TSubscription.api';
 import { downloadFile } from '/jeecgboot-vue3/src/utils/common/renderUtils';
 import { useUserStore } from '/@/store/modules/user';
@@ -109,8 +108,8 @@ const queryParam = reactive<any>({});
 const { createMessage } = useMessage();
 
 const getSubscribeStatusText = (status: string) => {
-  if (status === '1') return '同意';
-  if (status === '2') return '不同意';
+  if (status === '1') return '已征订';
+  if (status === '2') return '未征订';
   return '未征订';
 };
 
@@ -151,12 +150,15 @@ const isCounselor = computed(() => unref(userRoleType) === 'counselor');
 const isStudent = computed(() => unref(userRoleType) === 'student');
 
 // ========== 响应式控制表单显示（兼容setFormProps报错） ==========
+const studentSchemaFields = ['subscriptionYear', 'subscriptionSemester', 'subscribeStatus'];
 const tableFormConfig = computed(() => ({
-  schemas: unref(isAdmin) || unref(isCounselor) ? searchFormSchema : [],
-  show: unref(isAdmin) || unref(isCounselor), // 仅管理员/辅导员显示搜索框
+  schemas: unref(isStudent)
+    ? searchFormSchema.filter(s => studentSchemaFields.includes(s.field))
+    : searchFormSchema,
+  show: true, // 所有角色均可使用搜索框
   showAdvancedButton: unref(isAdmin) || unref(isCounselor),
-  showSearchButton: unref(isAdmin) || unref(isCounselor),
-  showResetButton: unref(isAdmin) || unref(isCounselor),
+  showSearchButton: true,
+  showResetButton: true,
   autoSubmitOnEnter: true,
   submitButtonProps: { label: '查询' },
   resetButtonProps: { label: '重置' }
@@ -182,21 +184,8 @@ const fetchTableData = async (params = {}) => {
     const roleType = unref(userRoleType);
     console.log(`【${roleType}端】开始获取数据，参数：`, params);
 
-    // 如果没有传学年参数，自动获取当前学年作为默认筛选
-    let finalParams = { ...params };
-    if (!finalParams.subscriptionYear) {
-      try {
-        const yearRes = await getCurrentSchoolYear();
-        if (yearRes && yearRes.currentSchoolYear) {
-          finalParams.subscriptionYear = yearRes.currentSchoolYear;
-        }
-      } catch (e) {
-        console.warn('获取当前学年失败', e);
-      }
-    }
-
     // 1. 调用后端接口获取对应角色的全量数据（使用视图）
-    const res = await getMySubscription(finalParams);
+    const res = await getMySubscription(params);
     const rawRecords = res?.success ? res.result : (Array.isArray(res) ? res : []);
 
     if (rawRecords.length === 0) {
@@ -264,11 +253,11 @@ const fetchTableData = async (params = {}) => {
 
     // 4. 仅管理员/辅导员执行前端筛选（注意：后端已经按学年筛选了，这里只是额外的前端筛选）
     let filteredRecords = [...formattedRecords];
-    if ((unref(isAdmin) || unref(isCounselor)) && Object.keys(finalParams).length > 0) {
+    if ((unref(isAdmin) || unref(isCounselor)) && Object.keys(params).length > 0) {
       // 班级筛选：通过班级名查找学生ID，再按学生ID过滤
-      if (finalParams.className) {
+      if (params.className) {
         try {
-          const className = finalParams.className.trim();
+          const className = params.className.trim();
           // 1. 查找班级获取classId
           const classRes = await defHttp.get({ url: '/zbu/tClass/list', params: { pageSize: 999, pageNo: 1, className } });
           const classRecords = classRes.records || [];
@@ -291,22 +280,22 @@ const fetchTableData = async (params = {}) => {
           console.error('班级筛选失败：', e);
         }
       }
-      if (finalParams.studentId) {
-        const searchKey = finalParams.studentId.trim().toLowerCase();
+      if (params.studentId) {
+        const searchKey = params.studentId.trim().toLowerCase();
         filteredRecords = filteredRecords.filter(item =>
           (item.studentNo || '').toLowerCase().includes(searchKey) ||
           (item.studentName || '').toLowerCase().includes(searchKey)
         );
       }
-      if (finalParams.majorName) {
-        const searchKey = finalParams.majorName.trim().toLowerCase();
+      if (params.majorName) {
+        const searchKey = params.majorName.trim().toLowerCase();
         filteredRecords = filteredRecords.filter(item =>
           (item.majorName || '').toLowerCase().includes(searchKey)
         );
       }
-      if (finalParams.subscriptionYear) {
+      if (params.subscriptionYear) {
         filteredRecords = filteredRecords.filter(item =>
-          (item.subscriptionYear || '').toLowerCase().includes(finalParams.subscriptionYear.trim().toLowerCase())
+          (item.subscriptionYear || '').toLowerCase().includes(params.subscriptionYear.trim().toLowerCase())
         );
       }
       if (params.subscriptionSemester) {
@@ -388,13 +377,13 @@ const { prefixCls, tableContext, onExportXls, onImportXls } = useListPage({
     canResize:true,
     rowKey: 'id',
     formConfig: {
-      schemas: searchFormSchema,
+      schemas: unref(isStudent) ? searchFormSchema.filter(s => studentSchemaFields.includes(s.field)) : searchFormSchema,
       autoSubmitOnEnter:true,
-      showAdvancedButton: true,
+      showAdvancedButton: unref(isAdmin) || unref(isCounselor),
       fieldMapToNumber: [],
       fieldMapToTime: [],
     },
-    useSearchForm: unref(isAdmin) || unref(isCounselor),
+    useSearchForm: true, // 所有角色均可使用搜索框
     //  学生端不渲染操作列
     actionColumn: unref(isAdmin) || unref(isCounselor) ? {
       width: 120,
@@ -408,13 +397,20 @@ const { prefixCls, tableContext, onExportXls, onImportXls } = useListPage({
           }
         }
       }
-      // 合并参数：先使用表单参数，再合并 queryParam（queryParam 优先）
-      const mergedParams = Object.assign({}, params, queryParam);
+      // 合并参数：当前表单值优先，queryParam 兜底
+      const mergedParams = Object.assign({}, queryParam, params);
       // 过滤掉空字符串和 undefined 的参数
       Object.keys(mergedParams).forEach(key => {
         if (mergedParams[key] === '' || mergedParams[key] === undefined) {
           delete mergedParams[key];
         }
+      });
+      // 清理 queryParam 中已被用户清空的字段，然后同步当前值
+      Object.keys(queryParam).forEach(key => {
+        if (!(key in mergedParams)) delete queryParam[key];
+      });
+      Object.keys(mergedParams).forEach(key => {
+        queryParam[key] = mergedParams[key];
       });
       console.log('【beforeFetch】合并后的参数:', mergedParams);
       return mergedParams;

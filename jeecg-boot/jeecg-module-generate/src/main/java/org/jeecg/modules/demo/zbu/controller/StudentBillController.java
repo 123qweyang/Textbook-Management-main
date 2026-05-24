@@ -37,6 +37,7 @@ import org.jeecg.modules.system.service.ISysUserService;
 import org.jeecgframework.poi.excel.ExcelImportUtil;
 import org.jeecgframework.poi.excel.def.NormalExcelConstants;
 import org.jeecgframework.poi.excel.entity.ExportParams;
+import org.jeecgframework.poi.excel.entity.enmus.ExcelType;
 import org.jeecgframework.poi.excel.entity.ImportParams;
 import org.jeecgframework.poi.excel.view.JeecgEntityExcelView;
 import org.jeecg.common.system.base.controller.JeecgController;
@@ -174,7 +175,7 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 
 				// ====================== 3. 关联领取表：获取领取状态（核心新增） ======================
 				// 领取表的subscriptionId = 征订表的id（sub.getId()）
-				String receiveStatus = "未领取"; // 兜底值
+				String receiveStatus = "0"; // 兜底值（字典码）
 				try {
 					// 查询领取表中，关联当前征订记录的领取状态
 					QueryWrapper<TReceive> receiveQuery = new QueryWrapper<>();
@@ -212,6 +213,17 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 
 				bill.setMajorName(majorName); // 专业名称（专业表，保持历史专业信息）
 				bill.setCollegeName(collegeName); // 学院名称
+			// 班级名称从学生当前信息获取
+				try {
+					TStudent billStu = tStudentService.lambdaQuery()
+							.eq(TStudent::getStudentId, studentNo).one();
+					if (billStu != null && oConvertUtils.isNotEmpty(billStu.getClassId())) {
+						TClass tClass = tClassService.getById(billStu.getClassId());
+						if (tClass != null) bill.setClassName(tClass.getClassName());
+					}
+				} catch (Exception e) {
+					log.warn("查询班级名称失败：{}", e.getMessage());
+				}
 				bill.setSubscriptionYear(sub.getSubscriptionYear()); // 征订学年（征订表）
 				bill.setSubscriptionSemester(sub.getSubscriptionSemester()); // 征订学期（征订表）
 				bill.setTextbookName(textbookName); // 教材名称（教材表）
@@ -274,7 +286,7 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 		int month = cal.get(Calendar.MONTH) + 1;
 
 		String currentSchoolYear;
-		if (month >= 8) {
+		if (month >= 6) {
 			currentSchoolYear = year + "-" + (year + 1);
 		} else {
 			currentSchoolYear = (year - 1) + "-" + year;
@@ -420,9 +432,11 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 			@RequestParam(name = "majorName", required = false) String majorName,
 			@RequestParam(name = "schoolYear", required = false) String schoolYear,
 			@RequestParam(name = "semester", required = false) String semester) {
+		LoginUser sysUser = (LoginUser) SecurityUtils.getSubject().getPrincipal();
+		String exporter = (sysUser != null) ? sysUser.getRealname() : "未知";
 
 		ModelAndView mv = new ModelAndView(new JeecgEntityExcelView());
-		ExportParams exportParams = new ExportParams("账单汇总", "账单汇总数据");
+		ExportParams exportParams = new ExportParams("账单汇总报表", "导出人:" + exporter, "账单汇总", ExcelType.XSSF);
 		mv.addObject(NormalExcelConstants.PARAMS, exportParams);
 		mv.addObject(NormalExcelConstants.CLASS, StudentBillSummaryExport.class);
 
@@ -662,10 +676,25 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 			recordMap.put("subscriptionSemester", bill.getSubscriptionSemester());
 			recordMap.put("textbookName", bill.getTextbookName());
 			recordMap.put("isbn", bill.getIsbn() != null ? bill.getIsbn() : "");
+			if (oConvertUtils.isEmpty(bill.getIsbn()) && oConvertUtils.isNotEmpty(bill.getTextbookName())) {
+					try {
+						TTextbook textbook = tTextbookService.lambdaQuery()
+								.eq(TTextbook::getTextbookName, bill.getTextbookName())
+								.last("LIMIT 1").one();
+						if (textbook != null && oConvertUtils.isNotEmpty(textbook.getIsbn())) {
+							recordMap.put("isbn", textbook.getIsbn());
+						}
+					} catch (Exception e) {
+						log.warn("补填ISBN失败：{}", e.getMessage());
+					}
+				}
 			recordMap.put("price", bill.getPrice());
 			recordMap.put("discountPrice", bill.getDiscountPrice());
-			recordMap.put("subscribeStatus", bill.getSubscribeStatus());
-			recordMap.put("receiveStatus", bill.getReceiveStatus());
+			// 归一化状态显示（兼容字典码和中文文本两种存储格式）
+			String subStatus = bill.getSubscribeStatus();
+			recordMap.put("subscribeStatus", ("1".equals(subStatus) || "已征订".equals(subStatus)) ? "已征订" : "未征订");
+			String recStatus = bill.getReceiveStatus();
+			recordMap.put("receiveStatus", ("1".equals(recStatus) || "已领取".equals(recStatus)) ? "已领取" : "未领取");
 			recordMap.put("remark", bill.getRemark());
 			recordMap.put("createTime", bill.getCreateTime());
 			recordMap.put("updateTime", bill.getUpdateTime());
@@ -687,32 +716,25 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 			}
 			recordMap.put("studentName", studentName);
 
-			// 查询班级名称和学院名称
-			String studentIdForClass = bill.getStudentId();
-			if (studentIdForClass != null && !studentIdForClass.isEmpty()) {
+			// 学院名称从账单已存的 major_name 推导（保持历史数据不变）
+			String collegeName = bill.getCollegeName();
+			if (oConvertUtils.isEmpty(collegeName) && oConvertUtils.isNotEmpty(bill.getMajorName())) {
 				try {
-					String classCollegeSql = "SELECT c.class_name, cl.college_name FROM t_class c INNER JOIN t_student s ON s.class_id = c.id LEFT JOIN t_major m ON c.major_id = m.id LEFT JOIN t_college cl ON m.college_id = cl.id WHERE s.student_id = ? LIMIT 1";
-					List<Map<String, Object>> classCollegeList = jdbcTemplate.queryForList(classCollegeSql,
-							studentIdForClass);
-					if (!classCollegeList.isEmpty()) {
-						Map<String, Object> cc = classCollegeList.get(0);
-						recordMap.put("className", cc.get("class_name") != null ? cc.get("class_name").toString() : "");
-						recordMap.put("collegeName",
-								cc.get("college_name") != null ? cc.get("college_name").toString() : "");
-					} else {
-						recordMap.put("className", "");
-						recordMap.put("collegeName", "");
+					String collegeSql = "SELECT cl.college_name FROM t_major m "
+							+ "LEFT JOIN t_college cl ON m.college_id = cl.id "
+							+ "WHERE m.major_name = ? LIMIT 1";
+					String cn = jdbcTemplate.queryForObject(collegeSql, String.class, bill.getMajorName());
+					if (oConvertUtils.isNotEmpty(cn)) {
+						collegeName = cn;
 					}
 				} catch (Exception e) {
-					log.warn("查询班级/学院名称失败：{}", e.getMessage());
-					recordMap.put("className", "");
-					recordMap.put("collegeName", "");
+					log.warn("查询学院名称失败：{}", e.getMessage());
 				}
-			} else {
-				recordMap.put("className", "");
-				recordMap.put("collegeName", "");
 			}
-
+			recordMap.put("collegeName", collegeName != null ? collegeName : "");
+			// 班级名称使用账单中已存的值
+			recordMap.put("className", bill.getClassName() != null ? bill.getClassName() : "");
+			
 			recordsWithIsbn.add(recordMap);
 		}
 
@@ -877,8 +899,10 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 	@RequiresPermissions("zbu:student_bill:exportXls")
 	@RequestMapping(value = "/exportXls")
 	public ModelAndView exportXls(HttpServletRequest request, StudentBill studentBill) {
+		LoginUser sysUser = (LoginUser) SecurityUtils.getSubject().getPrincipal();
+		String exporter = (sysUser != null) ? sysUser.getRealname() : "未知";
 		ModelAndView mv = new ModelAndView(new JeecgEntityExcelView());
-		ExportParams exportParams = new ExportParams("个人账单", "个人账单数据");
+		ExportParams exportParams = new ExportParams("个人账单报表", "导出人:" + exporter, "个人账单", ExcelType.XSSF);
 		mv.addObject(NormalExcelConstants.PARAMS, exportParams);
 		mv.addObject(NormalExcelConstants.CLASS, StudentBill.class);
 
@@ -917,6 +941,34 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 					log.warn("查询学生姓名失败：{}", e.getMessage());
 				}
 			}
+			// 填充ISBN
+			if (oConvertUtils.isEmpty(bill.getIsbn()) && oConvertUtils.isNotEmpty(bill.getTextbookName())) {
+				try {
+					TTextbook textbook = tTextbookService.lambdaQuery()
+							.eq(TTextbook::getTextbookName, bill.getTextbookName())
+							.last("LIMIT 1").one();
+					if (textbook != null && oConvertUtils.isNotEmpty(textbook.getIsbn())) {
+						bill.setIsbn(textbook.getIsbn());
+					}
+				} catch (Exception e) {
+					log.warn("补填ISBN失败：{}", e.getMessage());
+				}
+			}
+			// 归一化征订状态和领取状态（兼容字典码和中文文本）
+				String subStatus = bill.getSubscribeStatus();
+				bill.setSubscribeStatus(("1".equals(subStatus) || "已征订".equals(subStatus)) ? "已征订" : "未征订");
+				String recStatus = bill.getReceiveStatus();
+				bill.setReceiveStatus(("1".equals(recStatus) || "已领取".equals(recStatus)) ? "已领取" : "未领取");
+			// 归一化征订学期（仅导出）
+				String sem = bill.getSubscriptionSemester();
+				if (sem != null) {
+					String s = sem.trim();
+					if ("1".equals(s) || "一".equals(s) || "第一学期".equals(s)) {
+						bill.setSubscriptionSemester("一");
+					} else if ("2".equals(s) || "二".equals(s) || "第二学期".equals(s)) {
+						bill.setSubscriptionSemester("二");
+					}
+				}
 		}
 
 		mv.addObject(NormalExcelConstants.DATA_LIST, list);
@@ -981,8 +1033,12 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 			if (ids == null || ids.isEmpty()) {
 				return Result.error("错误：暂无需要修改的账单数据！");
 			}
-			if (StringUtils.isEmpty(targetReceiveStatus) ||
-					(!("已领取".equals(targetReceiveStatus)) && !("未领取".equals(targetReceiveStatus)))) {
+			// 归一化：前端可能传字典码或中文文本
+			if ("1".equals(targetReceiveStatus) || "已领取".equals(targetReceiveStatus)) {
+				targetReceiveStatus = "1";
+			} else if ("0".equals(targetReceiveStatus) || "未领取".equals(targetReceiveStatus)) {
+				targetReceiveStatus = "0";
+			} else {
 				return Result.error("错误：领取状态值非法（仅支持“已领取”/“未领取”）！");
 			}
 

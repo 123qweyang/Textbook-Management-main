@@ -4,7 +4,6 @@
       @register="registerTable"
       :rowSelection="rowSelection"
       :form-config="tableFormConfig"
-      :class="{ 'hide-search-form': !isAdmin && !isCounselor }"
     >
       <template #tableTitle>
         <!-- 所有角色都显示批量修改按钮（区分文字） -->
@@ -139,12 +138,16 @@ const isCounselor = computed(() => unref(userRoleType) === 'counselor');
 const isStudent = computed(() => unref(userRoleType) === 'student');
 
 // ========== 表单配置（不变） ==========
+// 学生端仅显示学年、学期、教材、状态四个搜索框
+const studentSchemaFields = ['subscriptionYear', 'subscriptionSemester', 'textbookName', 'receiveStatus'];
 const tableFormConfig = computed(() => ({
-  schemas: unref(isAdmin) || unref(isCounselor) ? searchFormSchema : [],
-  show: unref(isAdmin) || unref(isCounselor),
+  schemas: unref(isStudent)
+    ? searchFormSchema.filter(s => studentSchemaFields.includes(s.field))
+    : searchFormSchema,
+  show: true, // 所有角色均可使用搜索框
   showAdvancedButton: unref(isAdmin) || unref(isCounselor),
-  showSearchButton: unref(isAdmin) || unref(isCounselor),
-  showResetButton: unref(isAdmin) || unref(isCounselor),
+  showSearchButton: true,
+  showResetButton: true,
   autoSubmitOnEnter: true,
   submitButtonProps: { label: '查询' },
   resetButtonProps: { label: '重置' }
@@ -420,13 +423,13 @@ const { prefixCls, tableContext, onExportXls, onImportXls } = useListPage({
     canResize:true,
     rowKey: 'id',
     formConfig: {
-      schemas: searchFormSchema,
+      schemas: unref(isStudent) ? searchFormSchema.filter(s => studentSchemaFields.includes(s.field)) : searchFormSchema,
       autoSubmitOnEnter:true,
-      showAdvancedButton: true,
+      showAdvancedButton: unref(isAdmin) || unref(isCounselor),
       fieldMapToNumber: [],
       fieldMapToTime: [],
     },
-    useSearchForm: unref(isAdmin) || unref(isCounselor),
+    useSearchForm: true, // 所有角色均可使用搜索框
     actionColumn: unref(isAdmin) || unref(isCounselor) ? {
       width: 120,
       fixed:'right'
@@ -439,7 +442,15 @@ const { prefixCls, tableContext, onExportXls, onImportXls } = useListPage({
           }
         }
       }
-      return Object.assign(params, queryParam);
+      const mergedParams = Object.assign({}, queryParam, params);
+      // 清理 queryParam 中已被用户清空的字段，然后同步当前值
+      Object.keys(queryParam).forEach(key => {
+        if (!(key in mergedParams)) delete queryParam[key];
+      });
+      Object.keys(mergedParams).forEach(key => {
+        queryParam[key] = mergedParams[key];
+      });
+      return mergedParams;
     },
   },
   exportConfig: {

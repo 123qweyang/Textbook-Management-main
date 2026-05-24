@@ -50,8 +50,12 @@ public class TSubscription implements Serializable {
 	@Dict(dictTable = "t_textbook", dicCode = "id", dicText = "textbook_name")
 	@Schema(description = "教材")
 	private java.lang.String textbookId;
+	/**ISBN*/
+	@TableField(exist = false)
+	@Excel(name = "ISBN", width = 20)
+	@Schema(description = "ISBN")
+	private java.lang.String isbn;
 	/**教材选用*/
-	@Excel(name = "教材选用", width = 15, dictTable = "t_textbook_selection", dicCode = "id", dicText = "selection_status")
 	@Dict(dictTable = "t_textbook_selection", dicCode = "id", dicText = "selection_status")
 	@Schema(description = "教材选用")
 	private java.lang.String selectionId;
@@ -70,7 +74,7 @@ public class TSubscription implements Serializable {
 	@Schema(description = "征订学期")
 	private java.lang.String subscriptionSemester;
 	/**征订状态*/
-	@Excel(name = "征订状态", width = 15, dicCode = "subscribe_status")
+	@Excel(name = "征订状态", width = 15)
 	@Dict(dicCode = "subscribe_status")
 	@Schema(description = "征订状态")
 	private java.lang.String subscribeStatus;

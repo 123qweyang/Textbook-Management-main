@@ -113,16 +113,16 @@ public class TClassController extends JeecgController<TClass, ITClassService> {
 		Page<TClass> page = new Page<TClass>(pageNo, pageSize);
 		IPage<TClass> pageList = tClassService.page(page, queryWrapper);
 
-		// 填充辅导员工号
+		// 填充辅导员姓名和工号
 		for (TClass record : pageList.getRecords()) {
 			if (record.getCounselorId() != null && !record.getCounselorId().isEmpty()) {
 				try {
-					String counselorNoSql = "SELECT counselor_id FROM t_counselor WHERE id = ? LIMIT 1";
-					String counselorNoResult = jdbcTemplate.queryForObject(counselorNoSql, String.class,
-							record.getCounselorId());
-					record.setCounselorNo(counselorNoResult);
+					String sql = "SELECT counselor_name, counselor_id FROM t_counselor WHERE id = ? LIMIT 1";
+					Map<String, Object> info = jdbcTemplate.queryForMap(sql, record.getCounselorId());
+					record.setCounselorName((String) info.get("counselor_name"));
+					record.setCounselorNo((String) info.get("counselor_id"));
 				} catch (Exception e) {
-					log.warn("查询辅导员工号失败：{}", e.getMessage());
+					log.warn("查询辅导员信息失败：{}", e.getMessage());
 				}
 			}
 		}
@@ -581,7 +581,7 @@ public class TClassController extends JeecgController<TClass, ITClassService> {
 
 		} catch (Exception e) {
 			log.error("Excel导入班级数据失败", e);
-			return Result.error("导入失败：" + e.getMessage());
+			List<String> failMsgList = new ArrayList<>(); failMsgList.add("导入异常：" + e.getMessage()); return ImportErrorExportUtil.buildErrorResult(failMsgList, "导入完成！成功导入0条有效数据", uploadPath, "班级表");
 		}
 	}
 

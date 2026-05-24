@@ -5,7 +5,6 @@
         @register="registerTable"
         :rowSelection="billRowSelection"
         :form-config="tableFormConfig"
-        :class="{ 'hide-search-form': !isAdmin && !isCounselor }"
         :pagination="{
           pageSize: 10,
           showSizeChanger: true,
@@ -78,7 +77,7 @@ import StudentBillModal from './components/StudentBillModal.vue'
 import {columns, searchFormSchema, superQuerySchema} from './StudentBill.data';
 import {
   list, deleteOne, batchDelete, getImportUrl, getExportUrl,
-  syncFromSubscription, getCurrentSchoolYear
+  syncFromSubscription
 } from './StudentBill.api';
 import { useUserStore } from '/@/store/modules/user';
 import { useMessage } from '/@/hooks/web/useMessage';
@@ -112,13 +111,14 @@ const userRoleType = computed(() => {
 const isAdmin = computed(() => unref(userRoleType) === 'admin');
 const isCounselor = computed(() => unref(userRoleType) === 'counselor');
 const isStudent = computed(() => unref(userRoleType) === 'student');
+const isFirstQuery = ref(true);
 
 const tableFormConfig = computed(() => ({
-  schemas: unref(isAdmin) || unref(isCounselor) ? searchFormSchema : [],
-  show: unref(isAdmin) || unref(isCounselor),
-  showAdvancedButton: unref(isAdmin) || unref(isCounselor),
-  showSearchButton: unref(isAdmin) || unref(isCounselor),
-  showResetButton: unref(isAdmin) || unref(isCounselor),
+  schemas: searchFormSchema,
+  show: true, // 所有角色均可使用搜索框
+  showAdvancedButton: true,
+  showSearchButton: true,
+  showResetButton: true,
   autoSubmitOnEnter: true,
   submitButtonProps: { label: '查询' },
   resetButtonProps: { label: '重置' }
@@ -173,17 +173,14 @@ const fetchBillList = async (params = {}) => {
       requestParams.student_id = loginUsername;
     }
 
-    // 如果没有传征订学年参数，调用接口获取当前学年
-    if (!requestParams.subscriptionYear) {
-      try {
-        const yearRes = await getCurrentSchoolYear();
-        if (yearRes && yearRes.currentSchoolYear) {
-          requestParams.subscriptionYear = yearRes.currentSchoolYear;
-        }
-      } catch (e) {
-        console.warn('获取当前学年失败', e);
-      }
+    // 仅首次加载时，默认查询当前学年；取消勾选后不再强制回填
+    if (!requestParams.subscriptionYear && isFirstQuery.value) {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      requestParams.subscriptionYear = (currentMonth < 6) ? `${currentYear - 1}-${currentYear}` : `${currentYear}-${currentYear + 1}`;
     }
+    isFirstQuery.value = false;
 
     const res = await list(requestParams);
     console.log('【账单列表】后端返回原始数据：', JSON.stringify(res).substring(0, 500));
@@ -355,7 +352,7 @@ const { tableContext, onExportXls, onImportXls } = useListPage({
       fieldMapToNumber: [],
       fieldMapToTime: [],
     },
-    useSearchForm: unref(isAdmin) || unref(isCounselor),
+    useSearchForm: true, // 所有角色均可使用搜索框
     beforeFetch: async (params) => {
       if (params && fieldPickers) {
         for (let key in fieldPickers) {
@@ -367,16 +364,12 @@ const { tableContext, onExportXls, onImportXls } = useListPage({
 
       const merged = Object.assign({}, params, queryParam);
 
-      // 如果没有传征订学年参数，调用接口获取当前学年
-      if (!merged.subscriptionYear) {
-        try {
-          const yearRes = await getCurrentSchoolYear();
-          if (yearRes && yearRes.currentSchoolYear) {
-            merged.subscriptionYear = yearRes.currentSchoolYear;
-          }
-        } catch (e) {
-          console.warn('获取当前学年失败', e);
-        }
+      // 仅首次加载时，默认查询当前学年；取消勾选后不再强制回填
+      if (!merged.subscriptionYear && isFirstQuery.value) {
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth() + 1;
+        merged.subscriptionYear = (currentMonth < 6) ? `${currentYear - 1}-${currentYear}` : `${currentYear}-${currentYear + 1}`;
       }
 
       return merged;

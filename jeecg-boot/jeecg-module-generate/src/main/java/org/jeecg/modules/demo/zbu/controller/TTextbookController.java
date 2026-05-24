@@ -81,19 +81,16 @@ public class TTextbookController extends JeecgController<TTextbook, ITTextbookSe
 
 		QueryWrapper<TTextbook> queryWrapper = new QueryWrapper<>();
 
-		// 启用学年筛选（必须）：没传则自动使用当前学年
+		// 启用学年筛选（可选）：有值则过滤，无值则查全部
 		String enableYear = req.getParameter("enableYear");
-		if (oConvertUtils.isEmpty(enableYear)) {
-			Calendar cal = Calendar.getInstance();
-			int year = cal.get(Calendar.YEAR);
-			int month = cal.get(Calendar.MONTH) + 1;
-			if (month >= 8) {
-				enableYear = year + "-" + (year + 1);
-			} else {
-				enableYear = (year - 1) + "-" + year;
-			}
+		if (oConvertUtils.isNotEmpty(enableYear)) {
+			queryWrapper.eq("enable_year", enableYear);
 		}
-		queryWrapper.eq("enable_year", enableYear);
+		// 启用学期筛选（可选）
+		String enableSemester = req.getParameter("enableSemester");
+		if (oConvertUtils.isNotEmpty(enableSemester)) {
+			queryWrapper.eq("enable_semester", enableSemester);
+		}
 
 		// 其他可选条件
 		if (oConvertUtils.isNotEmpty(tTextbook.getSectionCode())) {
@@ -145,19 +142,11 @@ public class TTextbookController extends JeecgController<TTextbook, ITTextbookSe
 	public Result<List<String>> getAllIds(TTextbook tTextbook, HttpServletRequest req) {
 		QueryWrapper<TTextbook> queryWrapper = new QueryWrapper<>();
 
-		// 启用学年筛选（与list逻辑一致）
+		// 启用学年筛选（可选）：有值则过滤，无值则导出全部
 		String enableYear = req.getParameter("enableYear");
-		if (oConvertUtils.isEmpty(enableYear)) {
-			Calendar cal = Calendar.getInstance();
-			int year = cal.get(Calendar.YEAR);
-			int month = cal.get(Calendar.MONTH) + 1;
-			if (month >= 8) {
-				enableYear = year + "-" + (year + 1);
-			} else {
-				enableYear = (year - 1) + "-" + year;
-			}
+		if (oConvertUtils.isNotEmpty(enableYear)) {
+			queryWrapper.eq("enable_year", enableYear);
 		}
-		queryWrapper.eq("enable_year", enableYear);
 
 		if (oConvertUtils.isNotEmpty(tTextbook.getIsbn())) {
 			queryWrapper.like("isbn", tTextbook.getIsbn());
@@ -410,7 +399,9 @@ public class TTextbookController extends JeecgController<TTextbook, ITTextbookSe
 
 		} catch (Exception e) {
 			log.error("【教材导入】失败", e);
-			return Result.error("导入失败：" + e.getMessage());
+			List<String> failMsgList = new ArrayList<>();
+			failMsgList.add("导入异常：" + e.getMessage());
+			return ImportErrorExportUtil.buildErrorResult(failMsgList, "导入完成！成功导入0条有效数据", uploadPath, "教材表");
 		}
 	}
 

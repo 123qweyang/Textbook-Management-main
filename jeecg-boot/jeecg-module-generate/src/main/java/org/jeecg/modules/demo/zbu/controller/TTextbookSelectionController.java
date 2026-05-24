@@ -22,6 +22,9 @@ import org.jeecgframework.poi.excel.ExcelImportUtil;
 import org.jeecgframework.poi.excel.def.NormalExcelConstants;
 import org.jeecgframework.poi.excel.entity.ExportParams;
 import org.jeecgframework.poi.excel.entity.ImportParams;
+import org.jeecgframework.poi.excel.entity.enmus.ExcelType;
+import org.apache.shiro.SecurityUtils;
+import org.jeecg.common.system.vo.LoginUser;
 import org.jeecgframework.poi.excel.view.JeecgEntityExcelView;
 import org.jeecg.common.system.base.controller.JeecgController;
 import org.jeecg.modules.demo.zbu.vo.ImportErrorExportUtil;
@@ -307,9 +310,9 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 					updateSub.setSubscriptionSemester(tTextbookSelection.getSemester());
 					needUpdateSub = true;
 				}
-				// 可选：生效状态关联征订状态（根据你的业务调整）
+				// 生效状态关联征订状态（生效→已征订，失效→未征订）
 				if (!Objects.equals(tTextbookSelection.getSelectionStatus(), oldSelection.getSelectionStatus())) {
-					String newSubscribeStatus = "1".equals(tTextbookSelection.getSelectionStatus()) ? "已生效" : "未生效";
+					String newSubscribeStatus = "1".equals(tTextbookSelection.getSelectionStatus()) ? "1" : "0";
 					updateSub.setSubscribeStatus(newSubscribeStatus);
 					needUpdateSub = true;
 				}
@@ -385,8 +388,8 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 						updateBill.setDiscountPrice(discountPrice);
 						needUpdateBill = true;
 					}
-					// 对比并更新：征订状态（关联生效状态）
-					String newSubscribeStatus = "1".equals(tTextbookSelection.getSelectionStatus()) ? "已生效" : "未生效";
+					// 对比并更新：征订状态（生效→已征订，失效→未征订）
+					String newSubscribeStatus = "1".equals(tTextbookSelection.getSelectionStatus()) ? "1" : "0";
 					if (!Objects.equals(newSubscribeStatus, bill.getSubscribeStatus())) {
 						updateBill.setSubscribeStatus(newSubscribeStatus);
 						needUpdateBill = true;
@@ -416,9 +419,9 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 				TReceive updateReceive = new TReceive();
 				updateReceive.setId(receive.getId()); // 领取记录ID
 
-				// 生效状态关联领取状态（比如失效后领取状态改为"已作废"）
+				// 生效状态关联领取状态（生效→未领取，失效→回退为未领取）
 				if (!Objects.equals(tTextbookSelection.getSelectionStatus(), oldSelection.getSelectionStatus())) {
-					String newReceiveStatus = "1".equals(tTextbookSelection.getSelectionStatus()) ? "未领取" : "已作废";
+					String newReceiveStatus = "1".equals(tTextbookSelection.getSelectionStatus()) ? "0" : "0";
 					updateReceive.setReceiveStatus(newReceiveStatus);
 					needUpdateReceive = true;
 				}
@@ -892,11 +895,13 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 		}
 
 		// 构建导出
+		LoginUser sysUser = (LoginUser) SecurityUtils.getSubject().getPrincipal();
+		String exporter = (sysUser != null) ? sysUser.getRealname() : "未知";
 		ModelAndView mv = new ModelAndView(new JeecgEntityExcelView());
 		mv.addObject(NormalExcelConstants.FILE_NAME, "教材选用表");
 		mv.addObject(NormalExcelConstants.CLASS, TTextbookSelection.class);
 		mv.addObject(NormalExcelConstants.PARAMS,
-				new ExportParams("教材选用表", "教材选用表"));
+				new ExportParams("教材选用表报表", "导出人:" + exporter, "教材选用表", ExcelType.XSSF));
 		mv.addObject(NormalExcelConstants.DATA_LIST, exportList);
 		return mv;
 	}
@@ -1000,9 +1005,17 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 						if (oConvertUtils.isEmpty(selection.getSchoolYear())) {
 							selection.setSchoolYear("");
 						}
-						if (oConvertUtils.isEmpty(selection.getSemester())) {
-							selection.setSemester("1"); // 默认第一学期
+				if (oConvertUtils.isEmpty(selection.getSemester())) {
+						selection.setSemester("1"); // 默认第一学期
+					} else {
+						// 统一学期格式为字典码（兼容导入Excel中的文本写法）
+						String semester = selection.getSemester().trim();
+						if ("第一学期".equals(semester) || "一".equals(semester)) {
+							selection.setSemester("1");
+						} else if ("第二学期".equals(semester) || "二".equals(semester)) {
+							selection.setSemester("2");
 						}
+					}
 						if (oConvertUtils.isEmpty(selection.getSelectionStatus())) {
 							selection.setSelectionStatus("1"); // 默认启用
 						}
@@ -1119,7 +1132,7 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 			}
 		} catch (Exception e) {
 			log.error("Excel导入失败", e);
-			return Result.error("导入失败：" + e.getMessage());
+			List<String> failMsgList = new ArrayList<>(); failMsgList.add("导入异常：" + e.getMessage()); return ImportErrorExportUtil.buildErrorResult(failMsgList, "导入完成！成功导入0条有效数据", uploadPath, "教材选用表");
 		}
 		return Result.error("导入失败！");
 	}
@@ -1376,7 +1389,7 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 					subscription.setMajorId(selection.getMajorId()); // 专业ID
 					subscription.setSubscriptionYear(selection.getSchoolYear()); // 征订学年
 					subscription.setSubscriptionSemester(selection.getSemester()); // 征订学期
-					subscription.setSubscribeStatus("待确认"); // 征订状态：待确认（学生同意后才会创建领取记录）
+					subscription.setSubscribeStatus("0"); // 征订状态：未征订
 					subscription.setRemark(""); // 备注
 					subscription.setCreateTime(new Date()); // 创建时间
 					subscription.setUpdateTime(new Date()); // 更新时间

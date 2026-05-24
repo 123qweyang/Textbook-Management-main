@@ -134,20 +134,36 @@ export const searchFormSchema: FormSchema[] = [
   {
     label: "征订学年",
     field: 'schoolYear',
-    component: 'ApiSelect',
-    componentProps: {
-      api: () => defHttp.get({ url: '/zbu/tSubscription/list', params: { pageSize: 99999, pageNo: 1 } }).then(res => {
-        const records = res.records || [];
-        const years = [...new Set(records.map(item => item.subscriptionYear).filter(Boolean))];
-        return years.sort().map(year => ({ label: year, value: year }));
-      }),
-      placeholder: '请选择征订学年'
+    component: 'JDictSelectTag',
+    defaultValue: (() => {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      return (currentMonth < 6) ? `${currentYear - 1}-${currentYear}` : `${currentYear}-${currentYear + 1}`;
+    })(),
+    componentProps: () => {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      const latestGradeYear = currentMonth < 6 ? currentYear - 1 : currentYear;
+      const options: { label: string; value: string }[] = [];
+      for (let i = 0; i <= 3; i++) {
+        const year = latestGradeYear - i;
+        if (year >= 2020) {
+          options.push({ label: `${year}-${year + 1}`, value: `${year}-${year + 1}` });
+        }
+      }
+      return { options, placeholder: '请选择征订学年' };
     },
   },
   {
     label: "征订学期",
     field: 'semester',
     component: 'Select',
+    defaultValue: (() => {
+      const month = new Date().getMonth() + 1;
+      return (month >= 6 && month <= 11) ? '1' : '2';
+    })(),
     componentProps: {
       options: [
         { label: '第一学期', value: '1' },

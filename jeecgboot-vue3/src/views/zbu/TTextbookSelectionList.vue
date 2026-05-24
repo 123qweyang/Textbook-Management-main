@@ -61,7 +61,7 @@
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
-  const defaultSchoolYear = (currentMonth < 9) ? `${currentYear - 1}-${currentYear}` : `${currentYear}-${currentYear + 1}`;
+  const defaultSchoolYear = (currentMonth < 6) ? `${currentYear - 1}-${currentYear}` : `${currentYear}-${currentYear + 1}`;
 
   //注册model
   const [registerModal, {openModal}] = useModal();
@@ -94,11 +94,17 @@
                   }
                 }
               }
-              const merged = Object.assign({}, params, queryParam);
+              const merged = Object.assign({}, queryParam, params);
               // 页面首次加载时，默认查询当前学年
               if (!merged.schoolYear) {
                 merged.schoolYear = defaultSchoolYear;
               }
+              Object.keys(queryParam).forEach(key => {
+                if (!(key in merged)) delete queryParam[key];
+              });
+              Object.keys(merged).forEach(key => {
+                queryParam[key] = merged[key];
+              });
               return merged;
             },
       },
