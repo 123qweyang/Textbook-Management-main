@@ -73,6 +73,11 @@
         type: Boolean,
         default: true,
       },
+      // 额外的查询条件，如 {status: '1'} 只显示启用的教材
+      queryParam: {
+        type: Object,
+        default: () => ({}),
+      },
     },
     components: {
       BasicModal,
@@ -129,7 +134,6 @@
       }
 
       function list(params) {
-        params['column'] = 'id';
         return new Promise(async (resolve, _reject) => {
           const aa = await queryTableData(params);
           resolve(aa);
@@ -236,6 +240,14 @@
       }
       const eqConditonTypes = ['int', 'double', 'Date', 'Datetime', 'BigDecimal'];
       function addQueryParams(params) {
+        // 将 queryParam 作为直接查询参数，兼容在线表格API
+        let queryParam = props.queryParam || {};
+        for (let key in queryParam) {
+          if (queryParam.hasOwnProperty(key)) {
+            params[key] = queryParam[key];
+          }
+        }
+
         let text = searchText.value;
         if (!text) {
           params['superQueryMatchType'] = 'or';

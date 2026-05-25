@@ -110,6 +110,10 @@ public class TTextbookController extends JeecgController<TTextbook, ITTextbookSe
 		String column = req.getParameter("column");
 		String order = req.getParameter("order");
 		if (oConvertUtils.isNotEmpty(column) && oConvertUtils.isNotEmpty(order)) {
+				// 去掉 _dictText 后缀（前端字典列 dataIndex 以 _dictText 结尾，如 status_dictText → status）
+				if (column.endsWith("_dictText")) {
+					column = column.substring(0, column.length() - "_dictText".length());
+				}
 			Set<String> allowedColumns = new HashSet<>(Arrays.asList(
 					"sectionCode", "businessCode", "isbn", "textbookName",
 					"enableYear", "enableSemester", "price", "discount",

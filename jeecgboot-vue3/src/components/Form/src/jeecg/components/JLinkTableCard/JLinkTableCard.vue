@@ -35,7 +35,7 @@
         </a-row>
       </div>
     </div>
-    <LinkTableListModal @register="registerListModal" :multi="multi" :id="popTableName" @success="addCard" />
+    <LinkTableListModal @register="registerListModal" :multi="multi" :id="popTableName" :queryParam="queryParam" @success="addCard" />
   </div>
 </template>
 
@@ -69,6 +69,8 @@
       detail: propTypes.bool.def(false),
       // 图片字段
       imageField: propTypes.string.def(''),
+      // 额外的查询条件，如 {status: '1'} 只显示启用的教材
+      queryParam: propTypes.object.def({}),
     },
     components: {
       PlusOutlined,

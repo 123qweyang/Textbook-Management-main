@@ -152,12 +152,13 @@ export const formSchema: FormSchema[] = [
     label: '班级',
     field: 'classId',
     component: 'JLinkTableCard',
-    componentProps: {
-      valueField: 'id',
-      textField: 'class_name',
-      tableName: 't_class',
-      multi: false
-    },
+      componentProps: ({ formModel }) => ({
+        valueField: 'id',
+        textField: 'class_name',
+        tableName: 't_class',
+        multi: false,
+        queryParam: formModel.majorId ? { major_id: formModel.majorId } : {},
+      }),
     dynamicRules: ({ model, schema }) => {
       return [
         { required: true, message: '请输入班级!' },
@@ -172,7 +173,8 @@ export const formSchema: FormSchema[] = [
       valueField: 'id',
       textField: 'textbook_name',
       tableName: 't_textbook',
-      multi: false
+      multi: false,
+      queryParam: { status: '1' },
     },
     dynamicRules: ({ model, schema }) => {
       return [

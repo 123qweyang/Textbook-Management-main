@@ -983,6 +983,9 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 							if (textbook == null) {
 								errorMsgList.add("第" + rowNum + "行，教材ID「" + textbookContent + "」不存在，请检查");
 								isValid = false;
+							} else if (!"1".equals(textbook.getStatus())) {
+								errorMsgList.add("第" + rowNum + "行，教材「" + textbook.getTextbookName() + "」的启用状态为停用，无法导入");
+								isValid = false;
 							} else {
 								textbookIsbn = textbook.getIsbn();
 							}
@@ -992,6 +995,9 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 							TTextbook textbook = tTextbookService.getOne(textbookWrapper);
 							if (textbook == null) {
 								errorMsgList.add("第" + rowNum + "行，教材名称「" + textbookContent + "」不存在，请检查。");
+								isValid = false;
+							} else if (!"1".equals(textbook.getStatus())) {
+								errorMsgList.add("第" + rowNum + "行，教材「" + textbook.getTextbookName() + "」的启用状态为停用，无法导入");
 								isValid = false;
 							} else {
 								selection.setTextbookId(textbook.getId());
