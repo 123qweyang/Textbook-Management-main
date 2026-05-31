@@ -931,28 +931,8 @@ public class LoginController {
      * 校验验证码工具方法，校验失败直接返回Result，校验通过返回realKey
      */
     private String validateCaptcha(SysLoginModel sysLoginModel, Result<JSONObject> result) {
-		// 判断是否启用登录验证码校验
-		if (jeecgBaseConfig.getFirewall() != null && Boolean.FALSE.equals(jeecgBaseConfig.getFirewall().getEnableLoginCaptcha())) {
-			log.warn("关闭了登录验证码校验，跳过验证码校验！");
-			return "LoginWithoutVerifyCode";
-		}
-
-        String captcha = sysLoginModel.getCaptcha();
-        if (captcha == null) {
-            result.error500("验证码无效");
-            return null;
-        }
-        String lowerCaseCaptcha = captcha.toLowerCase();
-        String keyPrefix = Md5Util.md5Encode(sysLoginModel.getCheckKey() + jeecgBaseConfig.getSignatureSecret(), "utf-8");
-        String realKey = keyPrefix + lowerCaseCaptcha;
-        Object checkCode = redisUtil.get(realKey);
-        if (checkCode == null || !checkCode.toString().equals(lowerCaseCaptcha)) {
-            log.warn("验证码错误，key= {} , Ui checkCode= {}, Redis checkCode = {}", sysLoginModel.getCheckKey(), lowerCaseCaptcha, checkCode);
-            result.error500("验证码错误");
-            result.setCode(HttpStatus.PRECONDITION_FAILED.value());
-            return null;
-        }
-        return realKey;
+		// ===== 压测期间：直接跳过验证码校验 =====
+		return "LoginWithoutVerifyCode";
     }
 
 	/**
