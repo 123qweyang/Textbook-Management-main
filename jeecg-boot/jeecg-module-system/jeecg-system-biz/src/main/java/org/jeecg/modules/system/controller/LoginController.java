@@ -931,6 +931,10 @@ public class LoginController {
      * 校验验证码工具方法，校验失败直接返回Result，校验通过返回realKey
      */
     private String validateCaptcha(SysLoginModel sysLoginModel, Result<JSONObject> result) {
+		// 压测专用：checkKey="JMETER" 时跳过验证码
+		if ("JMETER".equals(sysLoginModel.getCheckKey())) {
+			return "LoginWithoutVerifyCode";
+		}
 		// 判断是否启用登录验证码校验
 		if (jeecgBaseConfig.getFirewall() != null && Boolean.FALSE.equals(jeecgBaseConfig.getFirewall().getEnableLoginCaptcha())) {
 			log.warn("关闭了登录验证码校验，跳过验证码校验！");
