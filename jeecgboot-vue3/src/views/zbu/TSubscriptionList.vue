@@ -11,6 +11,8 @@
           <a-button
             type="primary"
             size="small"
+            :loading="subscribing"
+            :disabled="subscribing"
             @click="handleBatchUpdateSubscribeStatus"
             v-if="!isAdmin && !isCounselor"
           >
@@ -19,6 +21,8 @@
           <a-button
             type="primary"
             size="small"
+            :loading="subscribing"
+            :disabled="subscribing"
             @click="handleBatchUpdateSubscribeStatus"
             v-if="(isAdmin || isCounselor) && selectedRowKeys.length > 0"
           >
@@ -123,6 +127,7 @@ const normalizeSubscribeStatus = (status: string | undefined) => {
 const [registerModal, {openModal}] = useModal();
 const currentStudentId = ref("");
 const currentStudentInfo = ref<Recordable>({});
+const subscribing = ref(false);
 
 // ========== 核心优化：精准定义角色类型，增强兜底和兼容性 ==========
 const userStore = useUserStore();
@@ -443,6 +448,8 @@ const superQueryConfig = reactive(superQuerySchema);
 
 // ==========  修改4：批量修改征订状态（支持所有角色） ==========
 const handleBatchUpdateSubscribeStatus = async () => {
+  if (subscribing.value) return;
+  subscribing.value = true;
   try {
     let subscriptionIds: string[] = [];
 
@@ -511,6 +518,8 @@ const handleBatchUpdateSubscribeStatus = async () => {
     } else {
       createMessage.error(errorMsg || '征订状态修改失败，请重试！');
     }
+  } finally {
+    subscribing.value = false;
   }
 };
 

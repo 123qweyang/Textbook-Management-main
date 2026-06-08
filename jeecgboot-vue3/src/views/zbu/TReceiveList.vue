@@ -11,6 +11,8 @@
           <a-button
             type="primary"
             size="small"
+            :loading="receiving"
+            :disabled="receiving"
             @click="handleBatchUpdateReceiveStatus"
             v-if="!isAdmin && !isCounselor"
           >
@@ -19,6 +21,8 @@
           <a-button
             type="primary"
             size="small"
+            :loading="receiving"
+            :disabled="receiving"
             @click="handleBatchUpdateReceiveStatus"
             v-if="(isAdmin || isCounselor) && selectedRowKeys.length > 0"
           >
@@ -27,6 +31,8 @@
           <a-button
             type="primary"
             size="small"
+            :loading="receiving"
+            :disabled="receiving"
             @click="handleBatchUpdateReceiveStatusUn"
             v-if="(isAdmin || isCounselor) && selectedRowKeys.length > 0"
             style="margin-left: 8px"
@@ -116,6 +122,7 @@ const { createMessage } = useMessage();
 const [registerModal, {openModal}] = useModal();
 const currentStudentId = ref("");
 const currentStudentInfo = ref<Recordable>({});
+const receiving = ref(false);
 
 // ========== 核心：角色判断逻辑（不变） ==========
 const userStore = useUserStore();
@@ -471,6 +478,8 @@ const superQueryConfig = reactive(superQuerySchema);
 
 // ========== 批量修改领取状态： 核心修改（去掉所有loading，彻底无报错） ==========
 const handleBatchUpdateReceiveStatus = async () => {
+  if (receiving.value) return;
+  receiving.value = true;
   try {
     let receiveIds: string[] = [];
     const tableData = await fetchTableData();
@@ -514,10 +523,14 @@ const handleBatchUpdateReceiveStatus = async () => {
     } else {
       createMessage.error(errorMsg || '领取状态修改失败，请重试！');
     }
+  } finally {
+    receiving.value = false;
   }
 };
 
 const handleBatchUpdateReceiveStatusUn = async () => {
+  if (receiving.value) return;
+  receiving.value = true;
   try {
     let receiveIds: string[] = [];
     const tableData = await fetchTableData();
@@ -557,6 +570,8 @@ const handleBatchUpdateReceiveStatusUn = async () => {
     } else {
       createMessage.error(errorMsg || '领取状态修改失败，请重试！');
     }
+  } finally {
+    receiving.value = false;
   }
 };
 
