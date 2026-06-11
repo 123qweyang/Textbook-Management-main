@@ -368,6 +368,44 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 						.append(semShort).append("')");
 				}
 
+				// 征订状态筛选
+				String subscribeStatus = request.getParameter("subscribeStatus");
+				if (oConvertUtils.isNotEmpty(subscribeStatus)) {
+					sql.append(" AND subscribeStatus = '").append(subscribeStatus).append("'");
+				}
+
+				// 新生届号筛选（学号前N位）
+				String studentIdPrefix = request.getParameter("studentIdPrefix");
+				if (oConvertUtils.isNotEmpty(studentIdPrefix)) {
+					sql.append(" AND studentNo LIKE '").append(studentIdPrefix.trim()).append("%'");
+				}
+
+				// 学生搜索（学号或姓名模糊匹配）
+				String studentId = request.getParameter("studentId");
+				if (oConvertUtils.isNotEmpty(studentId)) {
+					String key = studentId.trim();
+					sql.append(" AND (studentNo LIKE '%").append(key)
+						.append("%' OR studentName LIKE '%").append(key).append("%')");
+				}
+
+				// 学院筛选
+				String collegeName = request.getParameter("collegeName");
+				if (oConvertUtils.isNotEmpty(collegeName)) {
+					sql.append(" AND collegeName LIKE '%").append(collegeName.trim()).append("%'");
+				}
+
+				// 专业筛选
+				String majorName = request.getParameter("majorName");
+				if (oConvertUtils.isNotEmpty(majorName)) {
+					sql.append(" AND majorName LIKE '%").append(majorName.trim()).append("%'");
+				}
+
+				// 班级筛选
+				String className = request.getParameter("className");
+				if (oConvertUtils.isNotEmpty(className)) {
+					sql.append(" AND className LIKE '%").append(className.trim()).append("%'");
+				}
+
 				// --------- 直接查询视图 ---------
 				list = jdbcTemplate.query(sql.toString(), new BeanPropertyRowMapper<>(TSubscription.class));
 			}

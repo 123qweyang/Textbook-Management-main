@@ -459,6 +459,56 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 						"SELECT id FROM t_subscription WHERE subscription_semester = '" + subscriptionSemester + "'");
 			}
 
+			// 领取状态筛选
+			String receiveStatus = request.getParameter("receiveStatus");
+			if (oConvertUtils.isNotEmpty(receiveStatus)) {
+				queryWrapper.eq("receive_status", receiveStatus);
+			}
+
+			// 教材名称筛选
+			String textbookName = request.getParameter("textbookName");
+			if (oConvertUtils.isNotEmpty(textbookName)) {
+				queryWrapper.inSql("subscription_id",
+					"SELECT s.id FROM t_subscription s JOIN t_textbook t ON s.textbook_id = t.id" +
+					" WHERE t.textbook_name LIKE '%" + textbookName.trim() + "%'");
+			}
+
+			// 学号筛选
+			String studentNo = request.getParameter("studentNo");
+			if (oConvertUtils.isNotEmpty(studentNo)) {
+				queryWrapper.inSql("receive_operator",
+					"SELECT id FROM t_student WHERE student_id LIKE '%" + studentNo.trim() + "%'");
+			}
+
+			// 姓名筛选
+			String studentName = request.getParameter("studentName");
+			if (oConvertUtils.isNotEmpty(studentName)) {
+				queryWrapper.inSql("receive_operator",
+					"SELECT id FROM t_student WHERE student_name LIKE '%" + studentName.trim() + "%'");
+			}
+
+			// 学院筛选
+			String collegeName = request.getParameter("collegeName");
+			if (oConvertUtils.isNotEmpty(collegeName)) {
+				queryWrapper.like("college_name", collegeName.trim());
+			}
+
+			// 专业筛选
+			String majorName = request.getParameter("majorName");
+			if (oConvertUtils.isNotEmpty(majorName)) {
+				queryWrapper.inSql("subscription_id",
+					"SELECT s.id FROM t_subscription s JOIN t_major m ON s.major_id = m.id" +
+					" WHERE m.major_name LIKE '%" + majorName.trim() + "%'");
+			}
+
+			// 班级筛选
+			String className = request.getParameter("className");
+			if (oConvertUtils.isNotEmpty(className)) {
+				queryWrapper.inSql("receive_operator",
+					"SELECT s.id FROM t_student s JOIN t_class c ON s.class_id = c.id" +
+					" WHERE c.class_name LIKE '%" + className.trim() + "%'");
+			}
+
 			if (isAdmin) {
 				// 管理员：导出全部
 				list = tReceiveService.list(queryWrapper);
