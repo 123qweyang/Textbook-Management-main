@@ -372,6 +372,8 @@ const { tableContext, onExportXls, onImportXls } = useListPage({
         merged.subscriptionYear = (currentMonth < 6) ? `${currentYear - 1}-${currentYear}` : `${currentYear}-${currentYear + 1}`;
       }
 
+      loadAllKeys(merged);
+
       return merged;
     },
   },
@@ -388,7 +390,25 @@ const { tableContext, onExportXls, onImportXls } = useListPage({
   },
 });
 
+// 预加载全量ID，用于跨页全选
+const allTableKeys = ref<string[]>([]);
+const loadAllKeys = async (searchParams?: any) => {
+  try {
+    const res = await list({ ...(searchParams || queryParam), pageSize: 99999, pageNo: 1 });
+    allTableKeys.value = (res?.records || []).map((r: any) => r.id).filter(Boolean);
+  } catch (e) { /* ignore */ }
+};
+
 const [registerTable, {reload}, { rowSelection, selectedRowKeys }] = tableContext;
+
+// 全选时选择当前筛选条件下的所有数据（同步，使用预加载ID）
+rowSelection.onSelectAll = (selected) => {
+  if (selected && allTableKeys.value.length > 0) {
+    selectedRowKeys.value = [...allTableKeys.value];
+  } else {
+    selectedRowKeys.value = [];
+  }
+};
 
 const billRowSelection = computed(() => {
   if (unref(isStudent)) {

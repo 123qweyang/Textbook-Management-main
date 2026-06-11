@@ -87,7 +87,9 @@
                   }
                 }
               }
-              return Object.assign(params, queryParam);
+              const merged = Object.assign(params, queryParam);
+              loadAllKeys(merged);
+              return merged;
             },
       },
        exportConfig: {
@@ -101,7 +103,25 @@
           },
   })
 
+  // 预加载全量ID，用于跨页全选
+  const allTableKeys = ref<string[]>([]);
+  const loadAllKeys = async (searchParams?: any) => {
+    try {
+      const res = await list({ ...(searchParams || queryParam), pageSize: 99999, pageNo: 1 });
+      allTableKeys.value = (res?.records || []).map((r: any) => r.id).filter(Boolean);
+    } catch (e) { /* ignore */ }
+  };
+
   const [registerTable, {reload},{ rowSelection, selectedRowKeys }] = tableContext
+
+  // 全选时选择当前筛选条件下的所有数据（同步，使用预加载ID）
+  rowSelection.onSelectAll = (selected) => {
+    if (selected && allTableKeys.value.length > 0) {
+      selectedRowKeys.value = [...allTableKeys.value];
+    } else {
+      selectedRowKeys.value = [];
+    }
+  };
 
   // 高级查询配置
   const superQueryConfig = reactive(superQuerySchema);

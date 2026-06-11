@@ -183,6 +183,8 @@ const getStudentInfoSafely = async (studentNo: string) => {
   }
 };
 
+const allSubscriptionKeys = ref<string[]>([]);
+
 // ========== 重构fetchTableData，使用视图数据 ==========
 const fetchTableData = async (params = {}) => {
   try {
@@ -360,6 +362,8 @@ const fetchTableData = async (params = {}) => {
 
     console.log(`【${roleType}端】筛选排序后数据：`, filteredRecords);
 
+    allSubscriptionKeys.value = filteredRecords.map((r: any) => r.id);
+
     return {
       records: filteredRecords,
       total: filteredRecords.length
@@ -436,6 +440,14 @@ const { prefixCls, tableContext, onExportXls, onImportXls } = useListPage({
 
 // 解构tableContext
 const [registerTable, {reload}, { rowSelection, selectedRowKeys }] = tableContext;
+
+rowSelection.onSelectAll = (selected) => {
+  if (selected) {
+    selectedRowKeys.value = [...allSubscriptionKeys.value];
+  } else {
+    selectedRowKeys.value = [];
+  }
+};
 
 // 学生端隐藏复选框
 const tableRowSelection = computed(() => {

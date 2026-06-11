@@ -351,13 +351,24 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 				}
 				// 3. 管理员：查询全部视图数据
 
-				// 征订学年筛选：有则过滤，无则查全部
+				// 征订学年筛选
 				String subscriptionYear = request.getParameter("subscriptionYear");
 				if (oConvertUtils.isNotEmpty(subscriptionYear)) {
 					sql.append(" AND subscriptionYear = '").append(subscriptionYear).append("'");
 				}
 
-				// --------- 直接查询视图（自动带学院名称）---------
+				// 征订学期筛选（兼容字典码和中文文本）
+				String subscriptionSemester = request.getParameter("subscriptionSemester");
+				if (oConvertUtils.isNotEmpty(subscriptionSemester)) {
+					String semText = "1".equals(subscriptionSemester) ? "第一学期" : "第二学期";
+					String semShort = "1".equals(subscriptionSemester) ? "一" : "二";
+					sql.append(" AND subscriptionSemester IN ('")
+						.append(subscriptionSemester).append("','")
+						.append(semText).append("','")
+						.append(semShort).append("')");
+				}
+
+				// --------- 直接查询视图 ---------
 				list = jdbcTemplate.query(sql.toString(), new BeanPropertyRowMapper<>(TSubscription.class));
 			}
 

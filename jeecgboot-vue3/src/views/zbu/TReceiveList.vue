@@ -172,6 +172,8 @@ const getStudentInfoSafely = async (studentNo: string) => {
   }
 };
 
+const allReceiveKeys = ref<string[]>([]);
+
 // ========== 重构fetchTableData，使用视图数据 ==========
 const fetchTableData = async (params = {}) => {
   try {
@@ -410,6 +412,8 @@ const fetchTableData = async (params = {}) => {
       });
     }
 
+    allReceiveKeys.value = filteredRecords.map((r: any) => r.id);
+
     return {
       records: filteredRecords,
       total: filteredRecords.length
@@ -474,6 +478,14 @@ const { prefixCls, tableContext, onExportXls, onImportXls } = useListPage({
 });
 
 const [registerTable, {reload}, { rowSelection, selectedRowKeys }] = tableContext;
+
+rowSelection.onSelectAll = (selected) => {
+  if (selected) {
+    selectedRowKeys.value = [...allReceiveKeys.value];
+  } else {
+    selectedRowKeys.value = [];
+  }
+};
 const superQueryConfig = reactive(superQuerySchema);
 
 // ========== 批量修改领取状态： 核心修改（去掉所有loading，彻底无报错） ==========

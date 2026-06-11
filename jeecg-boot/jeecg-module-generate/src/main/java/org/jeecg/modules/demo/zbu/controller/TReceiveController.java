@@ -445,11 +445,18 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 			// 3. 按角色查询（使用MyBatis-Plus代替JdbcTemplate）
 			QueryWrapper<TReceive> queryWrapper = new QueryWrapper<>();
 			queryWrapper.orderByDesc("create_time");
-			// 征订学年筛选：有则通过征订表过滤，无则查全部
+			// 征订学年筛选
 			String subscriptionYear = request.getParameter("subscriptionYear");
 			if (oConvertUtils.isNotEmpty(subscriptionYear)) {
 				queryWrapper.inSql("subscription_id",
 						"SELECT id FROM t_subscription WHERE subscription_year = '" + subscriptionYear + "'");
+			}
+
+			// 征订学期筛选
+			String subscriptionSemester = request.getParameter("subscriptionSemester");
+			if (oConvertUtils.isNotEmpty(subscriptionSemester)) {
+				queryWrapper.inSql("subscription_id",
+						"SELECT id FROM t_subscription WHERE subscription_semester = '" + subscriptionSemester + "'");
 			}
 
 			if (isAdmin) {
