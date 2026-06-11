@@ -98,6 +98,12 @@ const {prefix, tableContext, onExportXls} = useListPage({
         schoolYear: params.schoolYear || '',
         semester: params.semester || '',
       };
+      // 预加载全量ID用于跨页全选
+      summaryList({ ...queryParams, pageSize: 99999, pageNo: 1 }).then(allRes => {
+        allTableKeys.value = (allRes?.records || []).map((r: any, i: number) =>
+          r.id || `summary-row-${i}`
+        );
+      }).catch(() => {});
       const res = await summaryList(queryParams);
       if (res) {
         const rawRecords = res.records || [];
@@ -184,7 +190,19 @@ const {prefix, tableContext, onExportXls} = useListPage({
   },
 });
 
+// 预加载全量ID，用于跨页全选
+const allTableKeys = ref<string[]>([]);
+
 const [registerTable, {reload}, { rowSelection, selectedRowKeys }] = tableContext;
+
+// 全选时选择当前筛选条件下的所有数据
+rowSelection.onSelectAll = (selected) => {
+  if (selected && allTableKeys.value.length > 0) {
+    selectedRowKeys.value = [...allTableKeys.value];
+  } else {
+    selectedRowKeys.value = [];
+  }
+};
 
 function getTableAction(record) {
   return [

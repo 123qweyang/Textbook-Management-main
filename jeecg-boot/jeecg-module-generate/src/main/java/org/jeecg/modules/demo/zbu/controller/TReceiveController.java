@@ -2,6 +2,7 @@ package org.jeecg.modules.demo.zbu.controller;
 
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -96,6 +97,9 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 	private static final String ADMIN_ROLE_CODE = "admin";
 	private static final String COUNSELOR_ROLE_CODE = "counselor";
 	private static final String STUDENT_ROLE_CODE = "student";
+
+	// 操作人级锁，防止同一操作人并发同步账单导致重复创建
+	private final ConcurrentHashMap<String, Object> billSyncLocks = new ConcurrentHashMap<>();
 
 	/**
 	 * 分页列表查询
@@ -441,11 +445,18 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 			// 3. 按角色查询（使用MyBatis-Plus代替JdbcTemplate）
 			QueryWrapper<TReceive> queryWrapper = new QueryWrapper<>();
 			queryWrapper.orderByDesc("create_time");
-			// 征订学年筛选：有则通过征订表过滤，无则查全部
+			// 征订学年筛选
 			String subscriptionYear = request.getParameter("subscriptionYear");
 			if (oConvertUtils.isNotEmpty(subscriptionYear)) {
 				queryWrapper.inSql("subscription_id",
 						"SELECT id FROM t_subscription WHERE subscription_year = '" + subscriptionYear + "'");
+			}
+
+			// 征订学期筛选
+			String subscriptionSemester = request.getParameter("subscriptionSemester");
+			if (oConvertUtils.isNotEmpty(subscriptionSemester)) {
+				queryWrapper.inSql("subscription_id",
+						"SELECT id FROM t_subscription WHERE subscription_semester = '" + subscriptionSemester + "'");
 			}
 
 			if (isAdmin) {
@@ -658,7 +669,49 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 				}
 			}
 
-			// 5. 构造更新对象
+			// 5. 学生端：校验学年学期，仅允许操作当前学年当前学期的数据
+			if (STUDENT_ROLE_CODE.equals(userRoleType)) {
+				Calendar cal = Calendar.getInstance();
+				int year = cal.get(Calendar.YEAR);
+				int month = cal.get(Calendar.MONTH) + 1;
+				String currentSchoolYear;
+				String currentSemester;
+				if (month >= 6 && month <= 11) {
+					currentSchoolYear = year + "-" + (year + 1);
+					currentSemester = "1";
+				} else if (month == 12) {
+					currentSchoolYear = year + "-" + (year + 1);
+					currentSemester = "2";
+				} else {
+					currentSchoolYear = (year - 1) + "-" + year;
+					currentSemester = "2";
+				}
+				// 查询领取记录关联的征订信息，获取学年学期
+				QueryWrapper<TReceive> receiveQueryForCheck = new QueryWrapper<>();
+				receiveQueryForCheck.in("id", ids);
+				List<TReceive> receiveCheckList = tReceiveService.list(receiveQueryForCheck);
+				List<String> subscriptionIds = receiveCheckList.stream()
+						.map(TReceive::getSubscriptionId)
+						.filter(id -> oConvertUtils.isNotEmpty(id))
+						.collect(Collectors.toList());
+				if (!subscriptionIds.isEmpty()) {
+					QueryWrapper<TSubscription> subCheckWrapper = new QueryWrapper<>();
+					subCheckWrapper.in("id", subscriptionIds);
+					List<TSubscription> subCheckList = tSubscriptionService.list(subCheckWrapper);
+					for (TSubscription sub : subCheckList) {
+						boolean yearMatch = currentSchoolYear.equals(sub.getSubscriptionYear());
+						boolean semesterMatch = currentSemester.equals(sub.getSubscriptionSemester());
+						if (!yearMatch || !semesterMatch) {
+							log.warn("学生{}尝试操作非当前学年学期数据，领取记录关联征订ID={}，学年={}，学期={}，期望学年={}，期望学期={}",
+									receiveOperator, sub.getId(), sub.getSubscriptionYear(), sub.getSubscriptionSemester(),
+									currentSchoolYear, currentSemester);
+							return Result.error("仅允许操作当前学年（" + currentSchoolYear + "）第" + currentSemester + "学期的数据，无法操作其他学年学期的领取记录！");
+						}
+					}
+				}
+			}
+
+			// 6. 构造更新对象
 			TReceive updateReceive = new TReceive();
 			updateReceive.setReceiveStatus(receiveStatus);
 			if ("1".equals(receiveStatus)) {
@@ -671,8 +724,11 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 				return Result.error("领取表状态修改失败：无匹配的领取记录！");
 			}
 
-			// 7. 同步更新个人账单（领取后创建/更新账单，取消领取时删除账单）
+			// 7. 同步更新个人账单（同步保护，防止并发重复创建账单）
 			if (receiveUpdateSuccess) {
+				String lockKey = oConvertUtils.isNotEmpty(receiveOperator) ? receiveOperator : loginUser.getId();
+				Object lock = billSyncLocks.computeIfAbsent(lockKey, k -> new Object());
+				synchronized (lock) {
 				String billReceiveStatus = receiveStatus;
 
 				QueryWrapper<TReceive> receiveQuery = new QueryWrapper<>();
@@ -781,6 +837,7 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 					}
 				}
 				log.info("同步个人账单结果：更新{}条，创建{}条，删除{}条，领取状态改为{}", billUpdateCount, billCreateCount, billDeleteCount, billReceiveStatus);
+				} // synchronized
 			}
 
 			return Result.OK("领取表状态修改成功（已同步个人账单）！");

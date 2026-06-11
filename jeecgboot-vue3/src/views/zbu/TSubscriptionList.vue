@@ -11,6 +11,8 @@
           <a-button
             type="primary"
             size="small"
+            :loading="subscribing"
+            :disabled="subscribing"
             @click="handleBatchUpdateSubscribeStatus"
             v-if="!isAdmin && !isCounselor"
           >
@@ -19,6 +21,8 @@
           <a-button
             type="primary"
             size="small"
+            :loading="subscribing"
+            :disabled="subscribing"
             @click="handleBatchUpdateSubscribeStatus"
             v-if="(isAdmin || isCounselor) && selectedRowKeys.length > 0"
           >
@@ -123,6 +127,7 @@ const normalizeSubscribeStatus = (status: string | undefined) => {
 const [registerModal, {openModal}] = useModal();
 const currentStudentId = ref("");
 const currentStudentInfo = ref<Recordable>({});
+const subscribing = ref(false);
 
 // ========== 核心优化：精准定义角色类型，增强兜底和兼容性 ==========
 const userStore = useUserStore();
@@ -177,6 +182,8 @@ const getStudentInfoSafely = async (studentNo: string) => {
     return null;
   }
 };
+
+const allSubscriptionKeys = ref<string[]>([]);
 
 // ========== 重构fetchTableData，使用视图数据 ==========
 const fetchTableData = async (params = {}) => {
@@ -355,6 +362,8 @@ const fetchTableData = async (params = {}) => {
 
     console.log(`【${roleType}端】筛选排序后数据：`, filteredRecords);
 
+    allSubscriptionKeys.value = filteredRecords.map((r: any) => r.id);
+
     return {
       records: filteredRecords,
       total: filteredRecords.length
@@ -432,6 +441,14 @@ const { prefixCls, tableContext, onExportXls, onImportXls } = useListPage({
 // 解构tableContext
 const [registerTable, {reload}, { rowSelection, selectedRowKeys }] = tableContext;
 
+rowSelection.onSelectAll = (selected) => {
+  if (selected) {
+    selectedRowKeys.value = [...allSubscriptionKeys.value];
+  } else {
+    selectedRowKeys.value = [];
+  }
+};
+
 // 学生端隐藏复选框
 const tableRowSelection = computed(() => {
   if (unref(isStudent)) {
@@ -443,6 +460,8 @@ const superQueryConfig = reactive(superQuerySchema);
 
 // ==========  修改4：批量修改征订状态（支持所有角色） ==========
 const handleBatchUpdateSubscribeStatus = async () => {
+  if (subscribing.value) return;
+  subscribing.value = true;
   try {
     let subscriptionIds: string[] = [];
 
@@ -511,6 +530,8 @@ const handleBatchUpdateSubscribeStatus = async () => {
     } else {
       createMessage.error(errorMsg || '征订状态修改失败，请重试！');
     }
+  } finally {
+    subscribing.value = false;
   }
 };
 

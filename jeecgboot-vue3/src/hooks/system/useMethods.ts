@@ -24,14 +24,6 @@ export function useMethods() {
    * @param timeout 超时时间（毫秒），默认 60000
    */
   async function exportXls(name, url, params, isXlsx = false, timeout = 60000) {
-    // 代码逻辑说明: 【JHHB-794】用户管理，跨页全选后，点击用户导出没反应---
-    if(params?.selections){
-      let split = params.selections.split(",");
-      if(split && split.length > 100){
-        createMessage.warning('最多可选择 100 项进行导出！');
-        return;
-      }
-    }
     // 修改为返回原生 response，便于获取 headers
     const response = await defHttp.get(
       { url: url, params: params, responseType: 'blob', timeout: timeout },

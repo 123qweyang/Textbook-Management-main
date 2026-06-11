@@ -2,6 +2,7 @@ package org.jeecg.modules.demo.zbu.controller;
 
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -100,6 +101,9 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 	private static final String ADMIN_ROLE_CODE = "admin";
 	private static final String COUNSELOR_ROLE_CODE = "counselor";
 	private static final String STUDENT_ROLE_CODE = "student";
+
+	// 学生级锁，防止同一学生并发创建领取记录导致写偏斜
+	private final ConcurrentHashMap<String, Object> receiveCreateLocks = new ConcurrentHashMap<>();
 
 	/**
 	 * 分页列表查询
@@ -347,13 +351,24 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 				}
 				// 3. 管理员：查询全部视图数据
 
-				// 征订学年筛选：有则过滤，无则查全部
+				// 征订学年筛选
 				String subscriptionYear = request.getParameter("subscriptionYear");
 				if (oConvertUtils.isNotEmpty(subscriptionYear)) {
 					sql.append(" AND subscriptionYear = '").append(subscriptionYear).append("'");
 				}
 
-				// --------- 直接查询视图（自动带学院名称）---------
+				// 征订学期筛选（兼容字典码和中文文本）
+				String subscriptionSemester = request.getParameter("subscriptionSemester");
+				if (oConvertUtils.isNotEmpty(subscriptionSemester)) {
+					String semText = "1".equals(subscriptionSemester) ? "第一学期" : "第二学期";
+					String semShort = "1".equals(subscriptionSemester) ? "一" : "二";
+					sql.append(" AND subscriptionSemester IN ('")
+						.append(subscriptionSemester).append("','")
+						.append(semText).append("','")
+						.append(semShort).append("')");
+				}
+
+				// --------- 直接查询视图 ---------
 				list = jdbcTemplate.query(sql.toString(), new BeanPropertyRowMapper<>(TSubscription.class));
 			}
 
@@ -786,7 +801,39 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 				}
 			}
 
-			// 5. 批量更新征订表状态
+			// 5. 学生端：校验学年学期，仅允许操作当前学年当前学期的数据
+			if (!isAdmin && !isCounselor) {
+				Calendar cal = Calendar.getInstance();
+				int year = cal.get(Calendar.YEAR);
+				int month = cal.get(Calendar.MONTH) + 1;
+				String currentSchoolYear;
+				String currentSemester;
+				if (month >= 6 && month <= 11) {
+					currentSchoolYear = year + "-" + (year + 1);
+					currentSemester = "1";
+				} else if (month == 12) {
+					currentSchoolYear = year + "-" + (year + 1);
+					currentSemester = "2";
+				} else {
+					currentSchoolYear = (year - 1) + "-" + year;
+					currentSemester = "2";
+				}
+				QueryWrapper<TSubscription> yearSemesterWrapper = new QueryWrapper<>();
+				yearSemesterWrapper.in("id", ids);
+				List<TSubscription> yearSemesterList = tSubscriptionService.list(yearSemesterWrapper);
+				for (TSubscription sub : yearSemesterList) {
+					boolean yearMatch = currentSchoolYear.equals(sub.getSubscriptionYear());
+					boolean semesterMatch = currentSemester.equals(sub.getSubscriptionSemester());
+					if (!yearMatch || !semesterMatch) {
+						log.warn("学生{}尝试操作非当前学年学期数据，征订ID={}，学年={}，学期={}，期望学年={}，期望学期={}",
+								studentId, sub.getId(), sub.getSubscriptionYear(), sub.getSubscriptionSemester(),
+								currentSchoolYear, currentSemester);
+						return Result.error("仅允许操作当前学年（" + currentSchoolYear + "）第" + currentSemester + "学期的数据，无法操作其他学年学期的征订记录！");
+					}
+				}
+			}
+
+			// 6. 批量更新征订表状态
 			List<TSubscription> updateList = new ArrayList<>();
 			Date now = new Date();
 			for (String id : ids) {
@@ -815,39 +862,42 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 				log.warn("未查询到征订记录（ids={}）", ids);
 				return Result.OK("征订表状态修改成功，但无匹配的征订记录！");
 			}
-			// 7. 当同意征订时，为每条征订记录创建领取记录
+			// 7. 当同意征订时，为每条征订记录创建领取记录（同步保护，防止并发写偏斜）
 			int receiveCreateCount = 0;
 			if ("1".equals(subscribeStatus)) { // 1表示已征订/同意征订
-				List<TReceive> receiveList = new ArrayList<>();
-				for (TSubscription subscription : subList) {
-					// 检查是否已存在领取记录
-					QueryWrapper<TReceive> receiveWrapper = new QueryWrapper<>();
-					receiveWrapper.eq("subscription_id", subscription.getId());
-					if (tReceiveService.count(receiveWrapper) == 0) {
-						// 创建领取记录
-						TReceive receive = new TReceive();
-						receive.setReceiveOperator(subscription.getStudentId());
-						receive.setSubscriptionId(subscription.getId());
-						receive.setReceiveStatus("未领取");
-						receive.setReceiveRemark("");
-						receive.setCreateTime(new Date());
-						receive.setUpdateTime(new Date());
-						TMajor major = tMajorService.getById(subscription.getMajorId());
-						if (major != null) {
-							TCollege college = tCollegeService.getById(major.getCollegeId());
-							if (college != null) {
-								receive.setCollegeName(college.getCollegeName());
+				Object lock = receiveCreateLocks.computeIfAbsent(studentId, k -> new Object());
+				synchronized (lock) {
+					List<TReceive> receiveList = new ArrayList<>();
+					for (TSubscription subscription : subList) {
+						// 检查是否已存在领取记录
+						QueryWrapper<TReceive> receiveWrapper = new QueryWrapper<>();
+						receiveWrapper.eq("subscription_id", subscription.getId());
+						if (tReceiveService.count(receiveWrapper) == 0) {
+							// 创建领取记录
+							TReceive receive = new TReceive();
+							receive.setReceiveOperator(subscription.getStudentId());
+							receive.setSubscriptionId(subscription.getId());
+							receive.setReceiveStatus("未领取");
+							receive.setReceiveRemark("");
+							receive.setCreateTime(new Date());
+							receive.setUpdateTime(new Date());
+							TMajor major = tMajorService.getById(subscription.getMajorId());
+							if (major != null) {
+								TCollege college = tCollegeService.getById(major.getCollegeId());
+								if (college != null) {
+									receive.setCollegeName(college.getCollegeName());
+								}
 							}
+							receive.setSubscriptionYear(subscription.getSubscriptionYear());
+							receive.setSubscriptionSemester(subscription.getSubscriptionSemester());
+							receiveList.add(receive);
+							receiveCreateCount++;
 						}
-				receive.setSubscriptionYear(subscription.getSubscriptionYear());
-					receive.setSubscriptionSemester(subscription.getSubscriptionSemester());
-						receiveList.add(receive);
-						receiveCreateCount++;
 					}
-				}
-				if (!receiveList.isEmpty()) {
-					tReceiveService.saveBatch(receiveList);
-					log.info("批量创建领取记录成功，共创建{}条", receiveList.size());
+					if (!receiveList.isEmpty()) {
+						tReceiveService.saveBatch(receiveList);
+						log.info("批量创建领取记录成功，共创建{}条", receiveList.size());
+					}
 				}
 			}
 
@@ -907,6 +957,7 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 	 * @param subscriptionId 征订记录ID
 	 * @return
 	 */
+	@Transactional(rollbackFor = Exception.class)
 	@AutoLog(value = "征订表-学生同意征订")
 	@Operation(summary = "征订表-学生同意征订")
 	@PostMapping(value = "/agreeSubscription")
@@ -945,7 +996,15 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 			tSubscriptionService.updateById(subscription);
 			log.info("学生{}同意征订,征订记录ID:{}", studentNo, subscriptionId);
 
-			// 5. 创建领取记录
+			// 5. 检查是否已存在领取记录，防止重复创建
+			QueryWrapper<TReceive> receiveWrapper = new QueryWrapper<>();
+			receiveWrapper.eq("subscription_id", subscriptionId);
+			if (tReceiveService.count(receiveWrapper) > 0) {
+				log.warn("征订记录{}已存在领取记录，跳过重复创建", subscriptionId);
+				return Result.OK("同意征订成功！领取记录已存在，无需重复创建");
+			}
+
+			// 6. 创建领取记录
 			TReceive receive = new TReceive();
 			receive.setReceiveOperator(subscription.getStudentId());
 			receive.setSubscriptionId(subscription.getId());

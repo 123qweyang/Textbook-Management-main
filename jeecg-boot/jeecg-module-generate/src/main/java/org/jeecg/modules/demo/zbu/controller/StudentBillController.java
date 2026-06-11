@@ -915,10 +915,18 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 		String username = loginUser != null ? loginUser.getUsername() : "";
 		boolean isAdmin = "admin".equals(username) || "sysadmin".equals(username);
 
-		// 3. 非管理员（学生）：强制过滤
+		// 3. 非管理员（学生）：强制过滤（保留学年学期筛选）
 		if (!isAdmin) {
 			queryWrapper.clear();
 			queryWrapper.eq("student_id", username);
+			String subYear = request.getParameter("subscriptionYear");
+			if (oConvertUtils.isNotEmpty(subYear)) {
+				queryWrapper.eq("subscription_year", subYear);
+			}
+			String subSemester = request.getParameter("subscriptionSemester");
+			if (oConvertUtils.isNotEmpty(subSemester)) {
+				queryWrapper.eq("subscription_semester", subSemester);
+			}
 			queryWrapper.orderByDesc("create_time");
 		}
 
