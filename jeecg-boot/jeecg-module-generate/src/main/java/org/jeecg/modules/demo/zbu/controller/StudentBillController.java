@@ -430,6 +430,7 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 			@RequestParam(name = "studentName", required = false) String studentName,
 			@RequestParam(name = "collegeName", required = false) String collegeName,
 			@RequestParam(name = "majorName", required = false) String majorName,
+			@RequestParam(name = "className", required = false) String className,
 			@RequestParam(name = "schoolYear", required = false) String schoolYear,
 			@RequestParam(name = "semester", required = false) String semester) {
 		LoginUser sysUser = (LoginUser) SecurityUtils.getSubject().getPrincipal();
@@ -472,6 +473,9 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 		}
 		if (oConvertUtils.isNotEmpty(majorName)) {
 			baseSql += " AND majorName LIKE '%" + majorName + "%'";
+		}
+		if (oConvertUtils.isNotEmpty(className)) {
+			baseSql += " AND className LIKE '%" + className + "%'";
 		}
 		if (oConvertUtils.isNotEmpty(schoolYear)) {
 			baseSql += " AND schoolYear = '" + schoolYear + "'";

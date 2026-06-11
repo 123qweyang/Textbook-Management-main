@@ -45,6 +45,7 @@ import org.jeecgframework.poi.excel.ExcelImportUtil;
 import org.jeecgframework.poi.excel.def.NormalExcelConstants;
 import org.jeecgframework.poi.excel.entity.ExportParams;
 import org.jeecgframework.poi.excel.entity.ImportParams;
+import org.jeecgframework.poi.excel.entity.enmus.ExcelType;
 import org.jeecgframework.poi.excel.view.JeecgEntityExcelView;
 import org.jeecg.common.system.base.controller.JeecgController;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -676,7 +677,43 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 	@RequiresPermissions("zbu:t_student:exportXls")
 	@RequestMapping(value = "/exportXls")
 	public ModelAndView exportXls(HttpServletRequest request, TStudent tStudent) {
-		return super.exportXls(request, tStudent, TStudent.class, "学生表");
+		// 处理非TStudent实体的搜索字段（学院/专业/班级通过关联表查询）
+		String collegeName = request.getParameter("collegeName");
+		String majorName = request.getParameter("majorName");
+		String className = request.getParameter("className");
+		Map<String, String[]> paramMap = new HashMap<>(request.getParameterMap());
+		if (majorName != null && !majorName.isEmpty()) {
+			paramMap.remove("majorName");
+		}
+		if (className != null && !className.isEmpty()) {
+			paramMap.remove("className");
+		}
+		QueryWrapper<TStudent> queryWrapper = QueryGenerator.initQueryWrapper(tStudent, paramMap);
+		// 学院筛选（通过 major_id → college_id）
+		if (collegeName != null && !collegeName.isEmpty()) {
+			queryWrapper.inSql("major_id",
+				"SELECT id FROM t_major WHERE college_id IN (SELECT id FROM t_college WHERE college_name LIKE '%" + collegeName + "%')");
+		}
+		// 专业筛选
+		if (majorName != null && !majorName.isEmpty()) {
+			queryWrapper.inSql("major_id",
+				"SELECT id FROM t_major WHERE major_name LIKE '%" + majorName + "%'");
+		}
+		// 班级筛选
+		if (className != null && !className.isEmpty()) {
+			queryWrapper.inSql("class_id",
+				"SELECT id FROM t_class WHERE class_name LIKE '%" + className + "%'");
+		}
+		List<TStudent> exportList = tStudentService.list(queryWrapper);
+
+		LoginUser sysUser = (LoginUser) SecurityUtils.getSubject().getPrincipal();
+		ModelAndView mv = new ModelAndView(new JeecgEntityExcelView());
+		mv.addObject(NormalExcelConstants.FILE_NAME, "学生表");
+		mv.addObject(NormalExcelConstants.CLASS, TStudent.class);
+		mv.addObject(NormalExcelConstants.PARAMS,
+				new ExportParams("学生表报表", "导出人:" + (sysUser != null ? sysUser.getRealname() : "未知"), "学生表", ExcelType.XSSF));
+		mv.addObject(NormalExcelConstants.DATA_LIST, exportList);
+		return mv;
 	}
 
 	/**

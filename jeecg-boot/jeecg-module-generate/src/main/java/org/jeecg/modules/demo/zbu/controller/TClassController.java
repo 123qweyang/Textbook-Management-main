@@ -385,7 +385,27 @@ public class TClassController extends JeecgController<TClass, ITClassService> {
 	@RequestMapping(value = "/exportXls")
 	public ModelAndView exportXls(HttpServletRequest request, TClass tClass) {
 		// 先用父类方法生成查询条件，获取数据
-		QueryWrapper<TClass> queryWrapper = QueryGenerator.initQueryWrapper(tClass, request.getParameterMap());
+		// 处理搜索参数（辅导员名/工号非TClass字段，需手动过滤）
+		String counselorName = request.getParameter("counselorName");
+		String counselorNo = request.getParameter("counselorNo");
+		Map<String, String[]> paramMap = new HashMap<>(request.getParameterMap());
+		if (counselorName != null && !counselorName.isEmpty()) {
+			paramMap.remove("counselorName");
+		}
+		if (counselorNo != null && !counselorNo.isEmpty()) {
+			paramMap.remove("counselorNo");
+		}
+		QueryWrapper<TClass> queryWrapper = QueryGenerator.initQueryWrapper(tClass, paramMap);
+		// 辅导员名称筛选
+		if (counselorName != null && !counselorName.isEmpty()) {
+			queryWrapper.inSql("counselor_id",
+				"SELECT id FROM t_counselor WHERE counselor_name LIKE '%" + counselorName + "%'");
+		}
+		// 辅导员工号筛选
+		if (counselorNo != null && !counselorNo.isEmpty()) {
+			queryWrapper.inSql("counselor_id",
+				"SELECT id FROM t_counselor WHERE counselor_id LIKE '%" + counselorNo + "%'");
+		}
 		List<TClass> exportList = tClassService.list(queryWrapper);
 
 		// 填充辅导员姓名和工号
