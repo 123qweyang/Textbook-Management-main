@@ -8,9 +8,11 @@ import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.apache.shiro.SecurityUtils;
 import org.jeecg.common.api.vo.Result;
 import org.jeecg.common.system.query.QueryGenerator;
 import org.jeecg.common.system.query.QueryRuleEnum;
+import org.jeecg.common.system.vo.LoginUser;
 import org.jeecg.common.util.oConvertUtils;
 import org.jeecg.modules.demo.zbu.entity.*;
 import org.jeecg.modules.demo.zbu.service.*;
@@ -269,11 +271,52 @@ public class StudentAllBillSummaryController extends JeecgController<StudentAllB
 
 	@RequiresPermissions("zbu:student_all_bill_summary:exportXls")
 	@RequestMapping(value = "/exportXls")
-	public ModelAndView exportXls(HttpServletRequest request, StudentAllBillSummary studentAllBillSummary) {
-		return super.exportXls(request, studentAllBillSummary, StudentAllBillSummary.class, "总账单");
-	}
+		public void exportXls(HttpServletRequest request, HttpServletResponse response) {
+			LoginUser sysUser = (LoginUser) SecurityUtils.getSubject().getPrincipal();
+			String exporter = (sysUser != null) ? sysUser.getRealname() : "未知";
+			long startTime = System.currentTimeMillis();
 
-	@RequiresPermissions("zbu:student_all_bill_summary:importExcel")
+			// 1. 构建查询
+			QueryWrapper<StudentAllBillSummary> qw = QueryGenerator.initQueryWrapper(new StudentAllBillSummary(), request.getParameterMap());
+			long totalCount = studentAllBillSummaryService.count(qw);
+			log.info("导出总账单：共 {} 条，导出人：{}", totalCount, exporter);
+			if (totalCount == 0) { writeJson(response, "没有符合条件的数据可导出"); return; }
+
+			// 2. 流式导出
+			try {
+				String fileName = java.net.URLEncoder.encode("总账单_" + exporter + "_" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()), "UTF-8") + ".xlsx";
+				response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+				response.setCharacterEncoding("UTF-8");
+				response.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
+
+				org.apache.poi.xssf.streaming.SXSSFWorkbook wb = new org.apache.poi.xssf.streaming.SXSSFWorkbook(100);
+				org.apache.poi.ss.usermodel.Sheet sheet = wb.createSheet("总账单");
+				String[] headers = {"学院","专业","总费用"};
+				org.apache.poi.ss.usermodel.Row hr = sheet.createRow(0);
+				org.apache.poi.ss.usermodel.CellStyle hs = wb.createCellStyle();
+				org.apache.poi.ss.usermodel.Font hf = wb.createFont(); hf.setBold(true); hs.setFont(hf);
+				for (int i = 0; i < headers.length; i++) { org.apache.poi.ss.usermodel.Cell c = hr.createCell(i); c.setCellValue(headers[i]); c.setCellStyle(hs); }
+
+				int batchSize = 5000, rowIdx = 1;
+				for (int page = 1; ; page++) {
+					com.baomidou.mybatisplus.extension.plugins.pagination.Page<StudentAllBillSummary> p = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, batchSize);
+					List<StudentAllBillSummary> batch = studentAllBillSummaryService.page(p, qw).getRecords();
+					if (batch.isEmpty()) break;
+					for (StudentAllBillSummary item : batch) {
+						org.apache.poi.ss.usermodel.Row er = sheet.createRow(rowIdx++);
+						er.createCell(0).setCellValue(str(item.getCollegeName()));
+						er.createCell(1).setCellValue(str(item.getMajorName()));
+						er.createCell(2).setCellValue(item.getDiscountTotal() != null ? item.getDiscountTotal().doubleValue() : 0);
+					}
+					log.info("总账单导出进度：{}/{}", rowIdx-1, totalCount);
+				}
+				((org.apache.poi.xssf.streaming.SXSSFSheet)sheet).trackAllColumnsForAutoSizing();
+				for (int i = 0; i < headers.length; i++) { sheet.autoSizeColumn(i); sheet.setColumnWidth(i, Math.min(sheet.getColumnWidth(i), 6000)); }
+				wb.write(response.getOutputStream()); wb.dispose(); wb.close();
+				log.info("总账单导出完成：{} 条，耗时 {} 秒", totalCount, (System.currentTimeMillis()-startTime)/1000.0);
+			} catch (Exception e) { log.error("导出总账单失败", e); writeJson(response, "导出失败：" + e.getMessage()); }
+		}
+
 	@RequestMapping(value = "/importExcel", method = RequestMethod.POST)
 	public Result<?> importExcel(HttpServletRequest request, HttpServletResponse response) {
 		MultipartHttpServletRequest multipartRequest = (MultipartHttpServletRequest) request;
@@ -289,7 +332,7 @@ public class StudentAllBillSummaryController extends JeecgController<StudentAllB
 				long start = System.currentTimeMillis();
 				service.saveBatch(list);
 				log.info("消耗时间" + (System.currentTimeMillis() - start) + "毫秒");
-				return Result.ok("文件导入成功！数据行数：" + list.size());
+				return Result.OK("文件导入成功！数据行数：" + list.size());
 			} catch (Exception e) {
 				String msg = e.getMessage();
 				log.error(msg, e);
@@ -438,4 +481,16 @@ public class StudentAllBillSummaryController extends JeecgController<StudentAllB
 		dummyBill.setSubscriptionSemester(subscriptionSemester);
 		this.incrementSummary(dummyBill, true);
 	}
+
+	private void writeJson(HttpServletResponse response, String msg) {
+		try {
+			response.setContentType("application/json;charset=UTF-8");
+			response.getWriter().write("{\"success\":false,\"message\":\"" + msg + "\"}");
+		} catch (Exception ignored) {}
+	}
+
+	private String str(Object obj) {
+		return obj == null ? "" : obj.toString();
+	}
+
 }

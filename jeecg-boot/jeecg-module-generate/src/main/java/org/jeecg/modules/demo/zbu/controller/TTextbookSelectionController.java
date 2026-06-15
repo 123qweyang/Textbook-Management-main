@@ -822,93 +822,68 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 	 */
 	@RequiresPermissions("zbu:t_textbook_selection:exportXls")
 	@RequestMapping(value = "/exportXls")
-	public ModelAndView exportXls(HttpServletRequest request, TTextbookSelection tTextbookSelection) {
-		// 使用视图查询，确保ISBN等关联字段被填充
-		StringBuilder sql = new StringBuilder("SELECT * FROM v_textbook_selection_with_isbn WHERE 1=1");
+		public void exportXls(HttpServletRequest request, HttpServletResponse response) {
+			LoginUser sysUser = (LoginUser) SecurityUtils.getSubject().getPrincipal();
+			String exporter = (sysUser != null) ? sysUser.getRealname() : "未知";
+			long startTime = System.currentTimeMillis();
 
-		if (oConvertUtils.isNotEmpty(tTextbookSelection.getMajorId())) {
-			sql.append(" AND majorId = '").append(tTextbookSelection.getMajorId()).append("'");
-		}
-		if (oConvertUtils.isNotEmpty(tTextbookSelection.getMajorName())) {
-			sql.append(" AND majorName LIKE '%").append(tTextbookSelection.getMajorName()).append("%'");
-		}
-		if (oConvertUtils.isNotEmpty(tTextbookSelection.getClassId())) {
-			sql.append(" AND classId = '").append(tTextbookSelection.getClassId()).append("'");
-		}
-		if (oConvertUtils.isNotEmpty(tTextbookSelection.getClassName())) {
-			sql.append(" AND className LIKE '%").append(tTextbookSelection.getClassName()).append("%'");
-		}
-		if (oConvertUtils.isNotEmpty(tTextbookSelection.getTextbookId())) {
-			sql.append(" AND textbookId = '").append(tTextbookSelection.getTextbookId()).append("'");
-		}
-		if (oConvertUtils.isNotEmpty(tTextbookSelection.getTextbookName())) {
-			sql.append(" AND textbookName LIKE '%").append(tTextbookSelection.getTextbookName()).append("%'");
-		}
-		if (oConvertUtils.isNotEmpty(tTextbookSelection.getIsbn())) {
-			sql.append(" AND isbn LIKE '%").append(tTextbookSelection.getIsbn()).append("%'");
-		}
-		if (oConvertUtils.isNotEmpty(tTextbookSelection.getSchoolYear())) {
-			sql.append(" AND schoolYear = '").append(tTextbookSelection.getSchoolYear()).append("'");
-		}
-		if (oConvertUtils.isNotEmpty(tTextbookSelection.getSemester())) {
-			sql.append(" AND semester LIKE '%").append(tTextbookSelection.getSemester()).append("%'");
-		}
-		if (oConvertUtils.isNotEmpty(tTextbookSelection.getSelectionStatus())) {
-			sql.append(" AND selectionStatus LIKE '%").append(tTextbookSelection.getSelectionStatus()).append("%'");
-		}
+			// 1. 构建筛选 SQL（视图已 JOIN 好所有关联字段，无 N+1）
+			StringBuilder sql = new StringBuilder("SELECT * FROM v_textbook_selection_with_isbn WHERE 1=1");
+			addParamEq(request, sql, "majorId", "majorId");
+			addParamLike(request, sql, "majorName", "majorName");
+			addParamEq(request, sql, "classId", "classId");
+			addParamLike(request, sql, "className", "className");
+			addParamEq(request, sql, "textbookId", "textbookId");
+			addParamLike(request, sql, "textbookName", "textbookName");
+			addParamLike(request, sql, "isbn", "isbn");
+			addParamEq(request, sql, "schoolYear", "schoolYear");
+			addParamLike(request, sql, "semester", "semester");
+			addParamLike(request, sql, "selectionStatus", "selectionStatus");
 
-		sql.append(" ORDER BY createTime DESC");
+			long totalCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM v_textbook_selection_with_isbn WHERE 1=1"
+				+ sql.toString().substring(sql.indexOf("WHERE 1=1") + 9), Long.class);
+			log.info("导出教材选用表：共 {} 条，导出人：{}", totalCount, exporter);
+			if (totalCount == 0) { writeJson(response, "没有符合条件的数据可导出"); return; }
 
-		// 查询视图获取数据（包含ISBN等关联字段）
-		List<Map<String, Object>> records = jdbcTemplate.queryForList(sql.toString());
+			// 2. 流式导出
+			try {
+				String fileName = java.net.URLEncoder.encode("教材选用表_" + exporter + "_" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()), "UTF-8") + ".xlsx";
+				response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+				response.setCharacterEncoding("UTF-8");
+				response.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
 
-		// 转换为TTextbookSelection对象
-		List<TTextbookSelection> exportList = new ArrayList<>();
-		for (Map<String, Object> record : records) {
-			TTextbookSelection item = new TTextbookSelection();
-			item.setId((String) record.get("id"));
-			item.setMajorId((String) record.get("majorId"));
-			item.setClassId((String) record.get("classId"));
-			item.setTextbookId((String) record.get("textbookId"));
-			item.setSchoolYear((String) record.get("schoolYear"));
-			item.setSemester((String) record.get("semester"));
-			item.setSelectionStatus((String) record.get("selectionStatus"));
-			item.setRemark((String) record.get("remark"));
-			item.setIsbn((String) record.get("isbn"));
-			// 填充翻译字段
-			item.setMajorName((String) record.get("majorName"));
-			item.setClassName((String) record.get("className"));
-			item.setTextbookName((String) record.get("textbookName"));
-			Object ct = record.get("createTime");
-			if (ct instanceof java.time.LocalDateTime) {
-				item.setCreateTime(java.util.Date.from(((java.time.LocalDateTime) ct).atZone(java.time.ZoneId.systemDefault()).toInstant()));
-			} else if (ct instanceof java.util.Date) {
-				item.setCreateTime((java.util.Date) ct);
-			}
-			Object ut = record.get("updateTime");
-			if (ut instanceof java.time.LocalDateTime) {
-				item.setUpdateTime(java.util.Date.from(((java.time.LocalDateTime) ut).atZone(java.time.ZoneId.systemDefault()).toInstant()));
-			} else if (ut instanceof java.util.Date) {
-				item.setUpdateTime((java.util.Date) ut);
-			}
-			exportList.add(item);
+				org.apache.poi.xssf.streaming.SXSSFWorkbook wb = new org.apache.poi.xssf.streaming.SXSSFWorkbook(100);
+				org.apache.poi.ss.usermodel.Sheet sheet = wb.createSheet("教材选用表");
+				String[] headers = {"专业","班级","教材","ISBN","学年","学期","选用状态","备注"};
+				org.apache.poi.ss.usermodel.Row hr = sheet.createRow(0);
+				org.apache.poi.ss.usermodel.CellStyle hs = wb.createCellStyle();
+				org.apache.poi.ss.usermodel.Font hf = wb.createFont(); hf.setBold(true); hs.setFont(hf);
+				for (int i = 0; i < headers.length; i++) { org.apache.poi.ss.usermodel.Cell c = hr.createCell(i); c.setCellValue(headers[i]); c.setCellStyle(hs); }
+
+				int batchSize = 5000, rowIdx = 1;
+				for (int off = 0; off < totalCount; off += batchSize) {
+					for (Map<String, Object> row : jdbcTemplate.queryForList(sql.toString() + " ORDER BY createTime DESC LIMIT " + batchSize + " OFFSET " + off)) {
+						org.apache.poi.ss.usermodel.Row er = sheet.createRow(rowIdx++);
+						er.createCell(0).setCellValue(str(row.get("majorName")));
+						er.createCell(1).setCellValue(str(row.get("className")));
+						er.createCell(2).setCellValue(str(row.get("textbookName")));
+						er.createCell(3).setCellValue(str(row.get("isbn")));
+						er.createCell(4).setCellValue(str(row.get("schoolYear")));
+						er.createCell(5).setCellValue(str(row.get("semester")));
+						er.createCell(6).setCellValue(str(row.get("selectionStatus")));
+						er.createCell(7).setCellValue(str(row.get("remark")));
+					}
+					log.info("教材选用表导出进度：{}/{}", rowIdx-1, totalCount);
+				}
+				((org.apache.poi.xssf.streaming.SXSSFSheet)sheet).trackAllColumnsForAutoSizing();
+				for (int i = 0; i < headers.length; i++) { sheet.autoSizeColumn(i); sheet.setColumnWidth(i, Math.min(sheet.getColumnWidth(i), 6000)); }
+				wb.write(response.getOutputStream()); wb.dispose(); wb.close();
+				log.info("教材选用表导出完成：{} 条，耗时 {} 秒", totalCount, (System.currentTimeMillis()-startTime)/1000.0);
+			} catch (Exception e) { log.error("导出教材选用表失败", e); writeJson(response, "导出失败：" + e.getMessage()); }
 		}
-
-		// 构建导出
-		LoginUser sysUser = (LoginUser) SecurityUtils.getSubject().getPrincipal();
-		String exporter = (sysUser != null) ? sysUser.getRealname() : "未知";
-		ModelAndView mv = new ModelAndView(new JeecgEntityExcelView());
-		mv.addObject(NormalExcelConstants.FILE_NAME, "教材选用表");
-		mv.addObject(NormalExcelConstants.CLASS, TTextbookSelection.class);
-		mv.addObject(NormalExcelConstants.PARAMS,
-				new ExportParams("教材选用表报表", "导出人:" + exporter, "教材选用表", ExcelType.XSSF));
-		mv.addObject(NormalExcelConstants.DATA_LIST, exportList);
-		return mv;
-	}
 
 	/**
 	 * 通过excel导入数据
-	 *
 	 * @param request
 	 * @param response
 	 * @return
@@ -1410,4 +1385,26 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 			log.info("领取记录和个人账单将在学生同意征订后创建");
 		}
 	}
+
+	private void addParamEq(HttpServletRequest request, StringBuilder sql, String param, String col) {
+		String val = request.getParameter(param);
+		if (oConvertUtils.isNotEmpty(val)) sql.append(" AND ").append(col).append(" = '").append(val).append("'");
+	}
+
+	private void addParamLike(HttpServletRequest request, StringBuilder sql, String param, String col) {
+		String val = request.getParameter(param);
+		if (oConvertUtils.isNotEmpty(val)) sql.append(" AND ").append(col).append(" LIKE '%").append(val.trim()).append("%'");
+	}
+
+	private void writeJson(HttpServletResponse response, String msg) {
+		try {
+			response.setContentType("application/json;charset=UTF-8");
+			response.getWriter().write("{\"success\":false,\"message\":\"" + msg + "\"}");
+		} catch (Exception ignored) {}
+	}
+
+	private String str(Object obj) {
+		return obj == null ? "" : obj.toString();
+	}
+
 }

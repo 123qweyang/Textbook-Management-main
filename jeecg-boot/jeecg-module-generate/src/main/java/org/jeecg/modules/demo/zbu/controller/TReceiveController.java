@@ -399,199 +399,107 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 	 */
 	@RequiresPermissions("zbu:t_receive:exportXls")
 	@RequestMapping(value = "/exportXls")
-	public ModelAndView exportXls(HttpServletRequest request, TReceive tReceive) {
-		LoginUser sysUser = (LoginUser) SecurityUtils.getSubject().getPrincipal();
-		String exporter = (sysUser != null) ? sysUser.getRealname() : "未知";
-		ModelAndView mv = new ModelAndView(new JeecgEntityExcelView());
-		ExportParams exportParams = new ExportParams("领取表报表", "导出人:" + exporter, "领取表", ExcelType.XSSF);
-		mv.addObject(NormalExcelConstants.PARAMS, exportParams);
-		mv.addObject(NormalExcelConstants.CLASS, TReceive.class);
+		public void exportXls(HttpServletRequest request, HttpServletResponse response) {
+			LoginUser sysUser = (LoginUser) SecurityUtils.getSubject().getPrincipal();
+			String exporter = (sysUser != null) ? sysUser.getRealname() : "未知";
+			long startTime = System.currentTimeMillis();
 
-		List<TReceive> list = new ArrayList<>();
-		try {
-			// 1. 获取登录用户
+			// 1. 角色判断 + 构建筛选 SQL
 			Subject subject = SecurityUtils.getSubject();
-			if (subject == null || !subject.isAuthenticated()) {
-				mv.addObject(NormalExcelConstants.DATA_LIST, list);
-				return mv;
-			}
 			LoginUser loginUser = (LoginUser) subject.getPrincipal();
-			if (loginUser == null) {
-				mv.addObject(NormalExcelConstants.DATA_LIST, list);
-				return mv;
-			}
-
-			// 2. 角色判断
 			String roleCodeStr = loginUser.getRoleCode();
-			boolean isAdmin = false;
-			boolean isCounselor = false;
+			boolean isAdmin = false, isCounselor = false;
 			if (roleCodeStr != null && !roleCodeStr.isEmpty()) {
-				String[] roleCodes = roleCodeStr.split(",");
-				for (String code : roleCodes) {
-					code = code.trim();
-					if ("admin".equals(code)) {
-						isAdmin = true;
-						break;
-					}
-					if ("counselor".equals(code)) {
-						isCounselor = true;
-					}
+				for (String code : roleCodeStr.split(",")) {
+					if ("admin".equals(code.trim())) { isAdmin = true; break; }
+					if ("counselor".equals(code.trim())) { isCounselor = true; }
 				}
 			}
-			if (!isAdmin && "admin".equals(loginUser.getUsername())) {
-				isAdmin = true;
-			}
+			if (!isAdmin && "admin".equals(loginUser.getUsername())) isAdmin = true;
 
-			// 3. 按角色查询（使用MyBatis-Plus代替JdbcTemplate）
-			QueryWrapper<TReceive> queryWrapper = new QueryWrapper<>();
-			queryWrapper.orderByDesc("create_time");
-			// 征订学年筛选
-			String subscriptionYear = request.getParameter("subscriptionYear");
-			if (oConvertUtils.isNotEmpty(subscriptionYear)) {
-				queryWrapper.inSql("subscription_id",
-						"SELECT id FROM t_subscription WHERE subscription_year = '" + subscriptionYear + "'");
-			}
-
-			// 征订学期筛选
-			String subscriptionSemester = request.getParameter("subscriptionSemester");
-			if (oConvertUtils.isNotEmpty(subscriptionSemester)) {
-				queryWrapper.inSql("subscription_id",
-						"SELECT id FROM t_subscription WHERE subscription_semester = '" + subscriptionSemester + "'");
-			}
-
-			// 领取状态筛选
-			String receiveStatus = request.getParameter("receiveStatus");
-			if (oConvertUtils.isNotEmpty(receiveStatus)) {
-				queryWrapper.eq("receive_status", receiveStatus);
-			}
-
-			// 教材名称筛选
-			String textbookName = request.getParameter("textbookName");
-			if (oConvertUtils.isNotEmpty(textbookName)) {
-				queryWrapper.inSql("subscription_id",
-					"SELECT s.id FROM t_subscription s JOIN t_textbook t ON s.textbook_id = t.id" +
-					" WHERE t.textbook_name LIKE '%" + textbookName.trim() + "%'");
-			}
-
-			// 学号筛选
-			String studentNo = request.getParameter("studentNo");
-			if (oConvertUtils.isNotEmpty(studentNo)) {
-				queryWrapper.inSql("receive_operator",
-					"SELECT id FROM t_student WHERE student_id LIKE '%" + studentNo.trim() + "%'");
-			}
-
-			// 姓名筛选
-			String studentName = request.getParameter("studentName");
-			if (oConvertUtils.isNotEmpty(studentName)) {
-				queryWrapper.inSql("receive_operator",
-					"SELECT id FROM t_student WHERE student_name LIKE '%" + studentName.trim() + "%'");
-			}
-
-			// 学院筛选
-			String collegeName = request.getParameter("collegeName");
-			if (oConvertUtils.isNotEmpty(collegeName)) {
-				queryWrapper.like("college_name", collegeName.trim());
-			}
-
-			// 专业筛选
-			String majorName = request.getParameter("majorName");
-			if (oConvertUtils.isNotEmpty(majorName)) {
-				queryWrapper.inSql("subscription_id",
-					"SELECT s.id FROM t_subscription s JOIN t_major m ON s.major_id = m.id" +
-					" WHERE m.major_name LIKE '%" + majorName.trim() + "%'");
-			}
-
-			// 班级筛选
-			String className = request.getParameter("className");
-			if (oConvertUtils.isNotEmpty(className)) {
-				queryWrapper.inSql("receive_operator",
-					"SELECT s.id FROM t_student s JOIN t_class c ON s.class_id = c.id" +
-					" WHERE c.class_name LIKE '%" + className.trim() + "%'");
-			}
-
-			if (isAdmin) {
-				// 管理员：导出全部
-				list = tReceiveService.list(queryWrapper);
-			} else if (isCounselor) {
-				// 辅导员：仅导出自己管理的班级
-				TCounselor counselor = tCounselorService.lambdaQuery()
-						.eq(TCounselor::getUserId, loginUser.getId()).one();
+			StringBuilder filterSql = new StringBuilder();
+			// 角色过滤
+			if (isCounselor) {
+				TCounselor counselor = tCounselorService.lambdaQuery().eq(TCounselor::getUserId, loginUser.getId()).one();
 				if (counselor != null) {
-					List<TClass> classList = tClassService.lambdaQuery()
-							.eq(TClass::getCounselorId, counselor.getId()).list();
-					if (!classList.isEmpty()) {
-						List<String> classIds = classList.stream().map(TClass::getId).toList();
-						List<TStudent> studentList = tStudentService.lambdaQuery()
-								.in(TStudent::getClassId, classIds).list();
-						if (!studentList.isEmpty()) {
-							List<String> studentIds = studentList.stream().map(TStudent::getId).toList();
-							queryWrapper.in("receive_operator", studentIds);
-							list = tReceiveService.list(queryWrapper);
-						}
-					}
+					List<String> sids = tStudentService.lambdaQuery()
+						.in(TStudent::getClassId, tClassService.lambdaQuery().eq(TClass::getCounselorId, counselor.getId()).list()
+						.stream().map(TClass::getId).toList()).list().stream().map(TStudent::getId).toList();
+					filterSql.append(sids.isEmpty() ? " AND 1=0" : " AND r.receive_operator IN ('" + String.join("','", sids) + "')");
 				}
-			} else {
-				// 学生：仅导出自己的领取记录
-				TStudent student = tStudentService.lambdaQuery()
-						.eq(TStudent::getStudentId, loginUser.getUsername()).one();
-				if (student != null) {
-					queryWrapper.eq("receive_operator", student.getId());
-					list = tReceiveService.list(queryWrapper);
-				}
+			} else if (!isAdmin) {
+				TStudent student = tStudentService.lambdaQuery().eq(TStudent::getStudentId, loginUser.getUsername()).one();
+				filterSql.append(student != null ? " AND r.receive_operator = '" + student.getId() + "'" : " AND 1=0");
 			}
-		} catch (Exception e) {
-			log.error("领取表导出失败", e);
-		}
+			// 筛选条件
+			addParamFilter(request, filterSql, "subscriptionYear", "r.subscription_id IN (SELECT id FROM t_subscription WHERE subscription_year = '", "')");
+			addParamFilter(request, filterSql, "subscriptionSemester", "r.subscription_id IN (SELECT id FROM t_subscription WHERE subscription_semester = '", "')");
+			addParamLikeFilter(request, filterSql, "receiveStatus", "r.receive_status");
+			addParamLikeFilter(request, filterSql, "textbookName", "r.subscription_id IN (SELECT s.id FROM t_subscription s JOIN t_textbook t ON s.textbook_id=t.id WHERE t.textbook_name LIKE '%')");
+			addParamLikeFilter(request, filterSql, "studentNo", "r.receive_operator IN (SELECT id FROM t_student WHERE student_id LIKE '%')");
+			addParamLikeFilter(request, filterSql, "studentName", "r.receive_operator IN (SELECT id FROM t_student WHERE student_name LIKE '%')");
+			addParamLikeFilter(request, filterSql, "collegeName", "r.college_name");
+			addParamLikeFilter(request, filterSql, "majorName", "r.subscription_id IN (SELECT s.id FROM t_subscription s JOIN t_major m ON s.major_id=m.id WHERE m.major_name LIKE '%')");
+			addParamLikeFilter(request, filterSql, "className", "r.receive_operator IN (SELECT st.id FROM t_student st JOIN t_class cl ON st.class_id=cl.id WHERE cl.class_name LIKE '%')");
 
-		// 填充学生姓名、教材名称、征订学年、征订学期
-		for (TReceive receive : list) {
-			// 填充学生姓名
-			if (oConvertUtils.isNotEmpty(receive.getReceiveOperator())) {
-				try {
-					TStudent student = tStudentService.getById(receive.getReceiveOperator());
-					if (student != null) {
-						receive.setStudentName(student.getStudentName());
-					}
-				} catch (Exception e) {
-					log.warn("查询学生姓名失败：{}", e.getMessage());
-				}
-			}
-			// 填充教材名称、征订学年、征订学期
-			if (oConvertUtils.isNotEmpty(receive.getSubscriptionId())) {
-				try {
-					TSubscription subscription = tSubscriptionService.getById(receive.getSubscriptionId());
-					if (subscription != null) {
-						TTextbook textbook = tTextbookService.getById(subscription.getTextbookId());
-						if (textbook != null) {
-							receive.setTextbookName(textbook.getTextbookName());
-						}
-						receive.setSubscriptionYear(subscription.getSubscriptionYear());
-				receive.setSubscriptionYear(subscription.getSubscriptionYear());
-					String semester = subscription.getSubscriptionSemester();
-					if (semester != null) {
-						String s = semester.trim();
-						if ("1".equals(s) || "一".equals(s) || "第一学期".equals(s)) {
-							receive.setSubscriptionSemester("一");
-						} else if ("2".equals(s) || "二".equals(s) || "第二学期".equals(s)) {
-							receive.setSubscriptionSemester("二");
-						} else {
-							receive.setSubscriptionSemester(semester);
-						}
-					}
-					}
-				} catch (Exception e) {
-					log.warn("查询教材名称失败：{}", e.getMessage());
-				}
-			}
-		}
+			// 2. JOIN 查询（一次性拿到所有显示字段，无 N+1）
+			String baseFrom = " FROM t_receive r"
+				+ " LEFT JOIN t_student st ON r.receive_operator = st.id"
+				+ " LEFT JOIN t_subscription s ON r.subscription_id = s.id"
+				+ " LEFT JOIN t_textbook tb ON s.textbook_id = tb.id"
+				+ " WHERE 1=1" + filterSql.toString();
 
-		mv.addObject(NormalExcelConstants.DATA_LIST, list);
-		return mv;
-	}
+			long totalCount = jdbcTemplate.queryForObject("SELECT COUNT(*)" + baseFrom, Long.class);
+			log.info("导出领取表：共 {} 条，导出人：{}", totalCount, exporter);
+			if (totalCount == 0) { writeJson(response, "没有符合条件的数据可导出"); return; }
+
+			// 3. 流式导出
+			try {
+				String fileName = java.net.URLEncoder.encode("领取表_" + exporter + "_" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()), "UTF-8") + ".xlsx";
+				response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+				response.setCharacterEncoding("UTF-8");
+				response.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
+
+				org.apache.poi.xssf.streaming.SXSSFWorkbook wb = new org.apache.poi.xssf.streaming.SXSSFWorkbook(100);
+				org.apache.poi.ss.usermodel.Sheet sheet = wb.createSheet("领取表");
+				String[] headers = {"学号","学生姓名","教材名称","领取状态","征订学年","征订学期","领取时间","领取备注","学院"};
+				org.apache.poi.ss.usermodel.Row hr = sheet.createRow(0);
+				org.apache.poi.ss.usermodel.CellStyle hs = wb.createCellStyle();
+				org.apache.poi.ss.usermodel.Font hf = wb.createFont(); hf.setBold(true); hs.setFont(hf);
+				for (int i = 0; i < headers.length; i++) { org.apache.poi.ss.usermodel.Cell c = hr.createCell(i); c.setCellValue(headers[i]); c.setCellStyle(hs); }
+
+				String dataSql = "SELECT st.student_id AS studentNo, st.student_name AS studentName,"
+					+ " tb.textbook_name AS textbookName, r.receive_status AS receiveStatus,"
+					+ " s.subscription_year AS subscriptionYear, s.subscription_semester AS subscriptionSemester,"
+					+ " r.receive_time AS receiveTime, r.receive_remark AS receiveRemark, r.college_name AS collegeName"
+					+ baseFrom + " ORDER BY r.create_time DESC";
+				int batchSize = 5000, rowIdx = 1;
+				for (int off = 0; off < totalCount; off += batchSize) {
+					for (Map<String, Object> row : jdbcTemplate.queryForList(dataSql + " LIMIT " + batchSize + " OFFSET " + off)) {
+						org.apache.poi.ss.usermodel.Row er = sheet.createRow(rowIdx++);
+						er.createCell(0).setCellValue(str(row.get("studentNo")));
+						er.createCell(1).setCellValue(str(row.get("studentName")));
+						er.createCell(2).setCellValue(str(row.get("textbookName")));
+						er.createCell(3).setCellValue(str(row.get("receiveStatus")));
+						er.createCell(4).setCellValue(str(row.get("subscriptionYear")));
+						String sem = str(row.get("subscriptionSemester"));
+						if ("1".equals(sem)||"一".equals(sem)||"第一学期".equals(sem)) sem="一"; else if ("2".equals(sem)||"二".equals(sem)||"第二学期".equals(sem)) sem="二";
+						er.createCell(5).setCellValue(sem);
+						Object rt = row.get("receiveTime"); er.createCell(6).setCellValue(rt!=null?rt.toString():"");
+						er.createCell(7).setCellValue(str(row.get("receiveRemark")));
+						er.createCell(8).setCellValue(str(row.get("collegeName")));
+					}
+					log.info("领取表导出进度：{}/{}", rowIdx-1, totalCount);
+				}
+				((org.apache.poi.xssf.streaming.SXSSFSheet)sheet).trackAllColumnsForAutoSizing();
+				for (int i = 0; i < headers.length; i++) { sheet.autoSizeColumn(i); sheet.setColumnWidth(i, Math.min(sheet.getColumnWidth(i), 6000)); }
+				wb.write(response.getOutputStream()); wb.dispose(); wb.close();
+				log.info("领取表导出完成：{} 条，耗时 {} 秒", totalCount, (System.currentTimeMillis()-startTime)/1000.0);
+			} catch (Exception e) { log.error("导出领取表失败", e); writeJson(response, "导出失败：" + e.getMessage()); }
+		}
 
 	/**
 	 * 通过excel导入数据
-	 *
 	 * @param request
 	 * @param response
 	 * @return
@@ -1138,6 +1046,36 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 			log.error("获取领取记录失败", e);
 			return Result.error("获取失败：" + e.getMessage());
 		}
+	}
+
+
+	private void addParamFilter(HttpServletRequest request, StringBuilder sql, String param, String prefix, String suffix) {
+		String val = request.getParameter(param);
+		if (oConvertUtils.isNotEmpty(val)) sql.append(" AND ").append(prefix).append(val).append(suffix);
+	}
+
+	private void addParamLikeFilter(HttpServletRequest request, StringBuilder sql, String param, String col) {
+		String val = request.getParameter(param);
+		if (oConvertUtils.isNotEmpty(val)) {
+			String key = val.trim();
+			if (col.contains("IN (SELECT"))
+				sql.append(" AND ").append(col.replace("%", key));
+			else if (col.contains("%"))
+				sql.append(" AND ").append(col.replace("%", key));
+			else
+				sql.append(" AND ").append(col).append(" LIKE '%").append(key).append("%'");
+		}
+	}
+
+	private void writeJson(HttpServletResponse response, String msg) {
+		try {
+			response.setContentType("application/json;charset=UTF-8");
+			response.getWriter().write("{\"success\":false,\"message\":\"" + msg + "\"}");
+		} catch (Exception ignored) {}
+	}
+
+	private String str(Object obj) {
+		return obj == null ? "" : obj.toString();
 	}
 
 }
