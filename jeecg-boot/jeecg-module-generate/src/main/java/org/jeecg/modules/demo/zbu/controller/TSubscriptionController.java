@@ -301,160 +301,193 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 	}
 
 	/**
-	 * 导出excel
-	 *
-	 * @param request
-	 * @param tSubscription
+	 * 导出excel（流式：SXSSFWorkbook + 分批查询，支持几十万级数据）
 	 */
 	@RequiresPermissions("zbu:t_subscription:exportXls")
 	@RequestMapping(value = "/exportXls")
-		public ModelAndView exportXls(HttpServletRequest request, TSubscription tSubscription) {
+		public void exportXls(HttpServletRequest request, HttpServletResponse response) {
 			LoginUser sysUser = (LoginUser) SecurityUtils.getSubject().getPrincipal();
 			String exporter = (sysUser != null) ? sysUser.getRealname() : "未知";
-			ModelAndView mv = new ModelAndView(new JeecgEntityExcelView());
-			ExportParams exportParams = new ExportParams("征订表报表", "导出人:" + exporter, "征订表", ExcelType.XSSF);
-			mv.addObject(NormalExcelConstants.PARAMS, exportParams);
-			mv.addObject(NormalExcelConstants.CLASS, TSubscription.class);
+			long startTime = System.currentTimeMillis();
 
-			List<TSubscription> list = new ArrayList<>();
-
+			// 1. 构建权限过滤与筛选条件
+			StringBuilder filterSql = new StringBuilder();
 			if (sysUser != null) {
 				SysUser currentUser = sysUserService.getUserByName(sysUser.getUsername());
 				String userRoleType = getUserRoleType(currentUser.getId());
-				StringBuilder sql = new StringBuilder("SELECT * FROM v_subscription_with_details WHERE 1=1");
-
-				// --------- 权限过滤（查询视图时直接拼接条件）---------
-				// 1. 学生：只看自己
 				if (STUDENT_ROLE_CODE.equals(userRoleType)) {
 					TStudent student = tStudentService.lambdaQuery().eq(TStudent::getUserId, currentUser.getId()).one();
 					if (student != null) {
-						sql.append(" AND student_id = '").append(student.getId()).append("'");
+						filterSql.append(" AND s.student_id = '").append(student.getId()).append("'");
 					}
-				}
-				// 2. 辅导员：只看自己管理的班级
-				else if (COUNSELOR_ROLE_CODE.equals(userRoleType)) {
-					TCounselor counselor = tCounselorService.lambdaQuery().eq(TCounselor::getUserId, currentUser.getId())
-							.one();
+				} else if (COUNSELOR_ROLE_CODE.equals(userRoleType)) {
+					TCounselor counselor = tCounselorService.lambdaQuery().eq(TCounselor::getUserId, currentUser.getId()).one();
 					if (counselor != null) {
-						List<TClass> classList = tClassService.lambdaQuery().eq(TClass::getCounselorId, counselor.getId())
-								.list();
+						List<TClass> classList = tClassService.lambdaQuery().eq(TClass::getCounselorId, counselor.getId()).list();
 						if (!classList.isEmpty()) {
 							List<String> studentIds = tStudentService.lambdaQuery()
-									.in(TStudent::getClassId, classList)
-									.list().stream().map(TStudent::getId).toList();
+								.in(TStudent::getClassId, classList.stream().map(TClass::getId).toList())
+								.list().stream().map(TStudent::getId).toList();
 							if (!studentIds.isEmpty()) {
-								String ids = String.join("','", studentIds);
-								sql.append(" AND student_id IN ('").append(ids).append("')");
+								filterSql.append(" AND s.student_id IN ('").append(String.join("','", studentIds)).append("')");
 							}
 						}
 					}
 				}
-				// 3. 管理员：查询全部视图数据
-
-				// 征订学年筛选
-				String subscriptionYear = request.getParameter("subscriptionYear");
-				if (oConvertUtils.isNotEmpty(subscriptionYear)) {
-					sql.append(" AND subscriptionYear = '").append(subscriptionYear).append("'");
-				}
-
-				// 征订学期筛选（兼容字典码和中文文本）
-				String subscriptionSemester = request.getParameter("subscriptionSemester");
-				if (oConvertUtils.isNotEmpty(subscriptionSemester)) {
-					String semText = "1".equals(subscriptionSemester) ? "第一学期" : "第二学期";
-					String semShort = "1".equals(subscriptionSemester) ? "一" : "二";
-					sql.append(" AND subscriptionSemester IN ('")
-						.append(subscriptionSemester).append("','")
-						.append(semText).append("','")
-						.append(semShort).append("')");
-				}
-
-				// 征订状态筛选
-				String subscribeStatus = request.getParameter("subscribeStatus");
-				if (oConvertUtils.isNotEmpty(subscribeStatus)) {
-					sql.append(" AND subscribeStatus = '").append(subscribeStatus).append("'");
-				}
-
-				// 新生届号筛选（学号前N位）
-				String studentIdPrefix = request.getParameter("studentIdPrefix");
-				if (oConvertUtils.isNotEmpty(studentIdPrefix)) {
-					sql.append(" AND studentNo LIKE '").append(studentIdPrefix.trim()).append("%'");
-				}
-
-				// 学生搜索（学号或姓名模糊匹配）
-				String studentId = request.getParameter("studentId");
-				if (oConvertUtils.isNotEmpty(studentId)) {
-					String key = studentId.trim();
-					sql.append(" AND (studentNo LIKE '%").append(key)
-						.append("%' OR studentName LIKE '%").append(key).append("%')");
-				}
-
-				// 学院筛选
-				String collegeName = request.getParameter("collegeName");
-				if (oConvertUtils.isNotEmpty(collegeName)) {
-					sql.append(" AND collegeName LIKE '%").append(collegeName.trim()).append("%'");
-				}
-
-				// 专业筛选
-				String majorName = request.getParameter("majorName");
-				if (oConvertUtils.isNotEmpty(majorName)) {
-					sql.append(" AND majorName LIKE '%").append(majorName.trim()).append("%'");
-				}
-
-				// 班级筛选
-				String className = request.getParameter("className");
-				if (oConvertUtils.isNotEmpty(className)) {
-					sql.append(" AND className LIKE '%").append(className.trim()).append("%'");
-				}
-
-				// --------- 直接查询视图 ---------
-				list = jdbcTemplate.query(sql.toString(), new BeanPropertyRowMapper<>(TSubscription.class));
 			}
 
-		// 填充学生姓名、ISBN、征订状态文字
-		for (TSubscription subscription : list) {
-			if (oConvertUtils.isNotEmpty(subscription.getStudentId())) {
+			// 通用筛选条件
+			String subscriptionYear = request.getParameter("subscriptionYear");
+			if (oConvertUtils.isNotEmpty(subscriptionYear)) {
+				filterSql.append(" AND s.subscription_year = '").append(subscriptionYear).append("'");
+			}
+			String subscriptionSemester = request.getParameter("subscriptionSemester");
+			if (oConvertUtils.isNotEmpty(subscriptionSemester)) {
+				String semText = "1".equals(subscriptionSemester) ? "第一学期" : "第二学期";
+				String semShort = "1".equals(subscriptionSemester) ? "一" : "二";
+				filterSql.append(" AND s.subscription_semester IN ('")
+					.append(subscriptionSemester).append("','").append(semText).append("','").append(semShort).append("')");
+			}
+			String subscribeStatus = request.getParameter("subscribeStatus");
+			if (oConvertUtils.isNotEmpty(subscribeStatus)) {
+				filterSql.append(" AND s.subscribe_status = '").append(subscribeStatus).append("'");
+			}
+			String studentIdPrefix = request.getParameter("studentIdPrefix");
+			if (oConvertUtils.isNotEmpty(studentIdPrefix)) {
+				filterSql.append(" AND st.student_id LIKE '").append(studentIdPrefix.trim()).append("%'");
+			}
+			String studentId = request.getParameter("studentId");
+			if (oConvertUtils.isNotEmpty(studentId)) {
+				String key = studentId.trim();
+				filterSql.append(" AND (st.student_id LIKE '%").append(key)
+					.append("%' OR st.student_name LIKE '%").append(key).append("%')");
+			}
+			String collegeName = request.getParameter("collegeName");
+			if (oConvertUtils.isNotEmpty(collegeName)) {
+				filterSql.append(" AND c.college_name LIKE '%").append(collegeName.trim()).append("%'");
+			}
+			String majorName = request.getParameter("majorName");
+			if (oConvertUtils.isNotEmpty(majorName)) {
+				filterSql.append(" AND m.major_name LIKE '%").append(majorName.trim()).append("%'");
+			}
+			String className = request.getParameter("className");
+			if (oConvertUtils.isNotEmpty(className)) {
+				filterSql.append(" AND cl.class_name LIKE '%").append(className.trim()).append("%'");
+			}
+
+			// 2. 基础 FROM
+			String baseFrom = " FROM t_subscription s"
+				+ " LEFT JOIN t_student st ON s.student_id = st.id"
+				+ " LEFT JOIN t_textbook tb ON s.textbook_id = tb.id"
+				+ " LEFT JOIN t_major m ON s.major_id = m.id"
+				+ " LEFT JOIN t_college c ON m.college_id = c.id"
+				+ " LEFT JOIN t_class cl ON st.class_id = cl.id"
+				+ " WHERE 1=1" + filterSql.toString();
+
+			// 3. 计数
+			long totalCount = jdbcTemplate.queryForObject("SELECT COUNT(*)" + baseFrom, Long.class);
+			log.info("导出征订表：共 {} 条记录，导出人：{}", totalCount, exporter);
+
+			if (totalCount == 0) {
 				try {
-					TStudent student = tStudentService.getById(subscription.getStudentId());
-					if (student != null) {
-						subscription.setStudentName(student.getStudentName());
-					}
-				} catch (Exception e) {
-					log.warn("查询学生姓名失败：{}", e.getMessage());
-				}
+					response.setContentType("application/json;charset=UTF-8");
+					response.getWriter().write("{\"success\":false,\"message\":\"没有符合条件的数据可导出\"}");
+				} catch (IOException e) {}
+				return;
 			}
-			// 填充ISBN
-			if (oConvertUtils.isNotEmpty(subscription.getTextbookId())) {
+
+			// 4. 设置响应头
+			try {
+				String fileName = java.net.URLEncoder.encode("征订表_" + exporter + "_"
+					+ new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()), "UTF-8") + ".xlsx";
+				response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+				response.setCharacterEncoding("UTF-8");
+				response.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
+
+				// 5. 创建流式工作簿（内存窗口100行）
+				org.apache.poi.xssf.streaming.SXSSFWorkbook workbook = new org.apache.poi.xssf.streaming.SXSSFWorkbook(100);
+				org.apache.poi.ss.usermodel.Sheet sheet = workbook.createSheet("征订表");
+
+				// 6. 创建表头
+				String[] headers = {"学号", "学生姓名", "教材", "ISBN", "专业", "学院", "班级",
+					"征订学年", "征订学期", "征订状态", "征订备注", "征订操作时间"};
+				org.apache.poi.ss.usermodel.Row headerRow = sheet.createRow(0);
+				org.apache.poi.ss.usermodel.CellStyle headerStyle = workbook.createCellStyle();
+				org.apache.poi.ss.usermodel.Font headerFont = workbook.createFont();
+				headerFont.setBold(true);
+				headerStyle.setFont(headerFont);
+				for (int i = 0; i < headers.length; i++) {
+					org.apache.poi.ss.usermodel.Cell cell = headerRow.createCell(i);
+					cell.setCellValue(headers[i]);
+					cell.setCellStyle(headerStyle);
+				}
+
+				// 7. 分批查询写入（每批5000条）
+				int batchSize = 5000;
+				int rowIdx = 1;
+				String dataSql = "SELECT st.student_id AS studentNo, st.student_name AS studentName,"
+					+ " tb.textbook_name AS textbookName, tb.isbn,"
+					+ " m.major_name AS majorName, c.college_name AS collegeName, cl.class_name AS className,"
+					+ " s.subscription_year AS subscriptionYear, s.subscription_semester AS subscriptionSemester,"
+					+ " s.subscribe_status AS subscribeStatus, s.remark, s.subscribe_time AS subscribeTime"
+					+ baseFrom + " ORDER BY s.create_time DESC";
+
+				for (int offset = 0; offset < totalCount; offset += batchSize) {
+					String pageSql = dataSql + " LIMIT " + batchSize + " OFFSET " + offset;
+					List<Map<String, Object>> batch = jdbcTemplate.queryForList(pageSql);
+					for (Map<String, Object> row : batch) {
+						org.apache.poi.ss.usermodel.Row excelRow = sheet.createRow(rowIdx++);
+						excelRow.createCell(0).setCellValue(str(row.get("studentNo")));
+						excelRow.createCell(1).setCellValue(str(row.get("studentName")));
+						excelRow.createCell(2).setCellValue(str(row.get("textbookName")));
+						excelRow.createCell(3).setCellValue(str(row.get("isbn")));
+						excelRow.createCell(4).setCellValue(str(row.get("majorName")));
+						excelRow.createCell(5).setCellValue(str(row.get("collegeName")));
+						excelRow.createCell(6).setCellValue(str(row.get("className")));
+						excelRow.createCell(7).setCellValue(str(row.get("subscriptionYear")));
+						// 学期标准化
+						String sem = str(row.get("subscriptionSemester"));
+						if ("1".equals(sem) || "一".equals(sem) || "第一学期".equals(sem)) sem = "一";
+						else if ("2".equals(sem) || "二".equals(sem) || "第二学期".equals(sem)) sem = "二";
+						excelRow.createCell(8).setCellValue(sem);
+						// 状态标准化
+						String status = str(row.get("subscribeStatus"));
+						excelRow.createCell(9).setCellValue("1".equals(status) ? "已征订" : "未征订");
+						excelRow.createCell(10).setCellValue(str(row.get("remark")));
+						Object timeObj = row.get("subscribeTime");
+						excelRow.createCell(11).setCellValue(timeObj != null ? timeObj.toString() : "");
+					}
+					log.info("导出进度：{}/{}", rowIdx - 1, totalCount);
+				}
+
+				// 8. 自动列宽（SXSSFSheet 需先 track 列）
+				((org.apache.poi.xssf.streaming.SXSSFSheet) sheet).trackAllColumnsForAutoSizing();
+				for (int i = 0; i < headers.length; i++) {
+					sheet.autoSizeColumn(i);
+					int width = sheet.getColumnWidth(i);
+					sheet.setColumnWidth(i, Math.min(width, 6000));
+				}
+
+				// 9. 写出
+				workbook.write(response.getOutputStream());
+				workbook.dispose();
+				workbook.close();
+				long elapsed = System.currentTimeMillis() - startTime;
+				log.info("导出完成：{} 条记录，耗时 {} 秒", totalCount, elapsed / 1000.0);
+
+			} catch (Exception e) {
+				log.error("导出征订表失败", e);
 				try {
-					TTextbook textbook = tTextbookService.getById(subscription.getTextbookId());
-					if (textbook != null && oConvertUtils.isNotEmpty(textbook.getIsbn())) {
-						subscription.setIsbn(textbook.getIsbn());
-					}
-				} catch (Exception e) {
-					log.warn("查询教材ISBN失败：{}", e.getMessage());
-				}
-			}
-			// 征订学期统一转为标准格式
-			String semester = subscription.getSubscriptionSemester();
-			if (semester != null) {
-				String s = semester.trim();
-				if ("1".equals(s) || "一".equals(s) || "第一学期".equals(s)) {
-					subscription.setSubscriptionSemester("一");
-				} else if ("2".equals(s) || "二".equals(s) || "第二学期".equals(s)) {
-					subscription.setSubscriptionSemester("二");
-				}
-			}
-			// 征订状态统一转为显示文字
-			String status = subscription.getSubscribeStatus();
-			if ("1".equals(status)) {
-				subscription.setSubscribeStatus("已征订");
-			} else {
-				subscription.setSubscribeStatus("未征订");
+					response.setContentType("application/json;charset=UTF-8");
+					response.getWriter().write("{\"success\":false,\"message\":\"导出失败：" + e.getMessage() + "\"}");
+				} catch (IOException ignored) {}
 			}
 		}
 
-		mv.addObject(NormalExcelConstants.DATA_LIST, list);
-		return mv;
-	}
+		private String str(Object obj) {
+			return obj == null ? "" : obj.toString();
+		}
+
 
 	/**
 	 * 通过excel导入数据
@@ -561,19 +594,26 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 	}
 
 	/**
-	 * 获取当前登录学生的征订记录（核心接口）
+	 * 获取当前登录用户的征订记录（核心接口，支持服务端分页/排序/筛选）
 	 */
 	@AutoLog(value = "征订表-获取我的征订记录")
-	@Operation(summary = "获取当前登录学生的征订记录", description = "仅返回当前登录学生本人的征订记录")
+	@Operation(summary = "获取当前登录用户的征订记录", description = "按角色返回：管理员全量分页、辅导员仅管班级、学生仅本人")
 	@GetMapping(value = "/getMySubscription")
-	public Result<List<Map<String, Object>>> getMySubscription(
-			@RequestParam(name = "subscriptionYear", required = false) String subscriptionYear,
-			@RequestParam(name = "subscriptionSemester", required = false) String subscriptionSemester,
-			@RequestParam(name = "className", required = false) String className,
-			@RequestParam(name = "majorName", required = false) String majorName,
-			@RequestParam(name = "studentId", required = false) String studentId) {
+	public Result<Map<String, Object>> getMySubscription(
+		@RequestParam(name = "pageNo", defaultValue = "1") Integer pageNo,
+		@RequestParam(name = "pageSize", defaultValue = "10") Integer pageSize,
+		@RequestParam(name = "subscriptionYear", required = false) String subscriptionYear,
+		@RequestParam(name = "subscriptionSemester", required = false) String subscriptionSemester,
+		@RequestParam(name = "className", required = false) String className,
+		@RequestParam(name = "majorName", required = false) String majorName,
+		@RequestParam(name = "collegeName", required = false) String collegeName,
+		@RequestParam(name = "studentId", required = false) String studentId,
+		@RequestParam(name = "studentIdPrefix", required = false) String studentIdPrefix,
+		@RequestParam(name = "subscribeStatus", required = false) String subscribeStatus,
+		@RequestParam(name = "column", required = false) String column,
+		@RequestParam(name = "order", required = false) String order) {
 		try {
-			// 1. 获取当前登录用户（LoginUser）
+			// 1. 获取当前登录用户
 			Subject subject = SecurityUtils.getSubject();
 			if (subject == null || !subject.isAuthenticated()) {
 				log.warn("用户未登录，无法获取征订记录");
@@ -587,142 +627,150 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 
 			log.info("当前登录用户: {}，角色码: {}", loginUser.getUsername(), loginUser.getRoleCode());
 
-			// 2. 解析角色编码，判断用户类型（admin > 辅导员 > 学生）
+			// 2. 解析角色
 			String roleCodeStr = loginUser.getRoleCode();
 			boolean isAdmin = false;
 			boolean isCounselor = false;
-			// 角色判断（兼容多角色逗号分隔的情况）
 			if (roleCodeStr != null && !roleCodeStr.isEmpty()) {
-				String[] roleCodes = roleCodeStr.split(",");
-				for (String code : roleCodes) {
+				for (String code : roleCodeStr.split(",")) {
 					code = code.trim();
-					if ("admin".equals(code)) {
-						isAdmin = true;
-						break; // 管理员优先级最高
-					}
-					if ("counselor".equals(code)) {
-						isCounselor = true;
-					}
+					if ("admin".equals(code)) { isAdmin = true; break; }
+					if ("counselor".equals(code)) { isCounselor = true; }
 				}
 			}
-			// 管理员用户名兜底判断
 			if (!isAdmin && "admin".equals(loginUser.getUsername())) {
 				isAdmin = true;
 			}
 
-			// 3. 构建WHERE条件（注意：视图中的列名是驼峰格式）
-			List<String> whereConditions = new ArrayList<>();
-
-			// 征订学年筛选
-			if (oConvertUtils.isNotEmpty(subscriptionYear)) {
-				whereConditions.add("subscriptionYear = '" + subscriptionYear + "'");
-			}
-
-			// 征订学期筛选
-			if (oConvertUtils.isNotEmpty(subscriptionSemester)) {
-			String semText = "1".equals(subscriptionSemester) ? "第一学期" : "第二学期";
-				String semShort = "1".equals(subscriptionSemester) ? "一" : "二";
-				whereConditions.add("(subscriptionSemester = '" + subscriptionSemester
-						+ "' OR subscriptionSemester = '" + semText
-						+ "' OR subscriptionSemester = '" + semShort + "')");
-			}
-
-			String whereClause = whereConditions.isEmpty() ? "" : " WHERE " + String.join(" AND ", whereConditions);
-				String andClause = whereConditions.isEmpty() ? "" : " AND " + String.join(" AND ", whereConditions);
-
-			List<Map<String, Object>> subList = new ArrayList<>();
-			if (isAdmin) {
-				// 管理员：查询所有征订记录（使用视图）
-				subList = jdbcTemplate
-						.queryForList("SELECT * FROM v_subscription_with_details" + whereClause
-								+ " ORDER BY createTime DESC");
-				log.info("管理员模式，查询到{}条征订记录", subList.size());
-			} else if (isCounselor) {
-				// 步骤1：通过sys_user.id查询辅导员信息
-				QueryWrapper<TCounselor> counselorWrapper = new QueryWrapper<>();
-				counselorWrapper.eq("user_id", loginUser.getId()); // t_counselor的userId关联sys_user.id
-				TCounselor counselor = tCounselorService.getOne(counselorWrapper);
+			// 3. 构建角色限制条件
+			String roleFilter = "";
+			if (isCounselor) {
+				TCounselor counselor = tCounselorService.lambdaQuery()
+					.eq(TCounselor::getUserId, loginUser.getId()).one();
 				if (counselor == null) {
-					log.warn("当前登录用户未关联辅导员信息，用户ID: {}", loginUser.getId());
-					return Result.error("当前登录用户未关联辅导员信息");
+					return mapResult(Collections.emptyList(), 0, pageNo, pageSize);
 				}
-
-				// 步骤2：查询该辅导员管理的所有班级
-				QueryWrapper<TClass> classWrapper = new QueryWrapper<>();
-				classWrapper.eq("counselor_id", counselor.getId()); // t_class的counselorId关联t_counselor.id
-				List<TClass> classList = tClassService.list(classWrapper);
+				List<TClass> classList = tClassService.lambdaQuery()
+					.eq(TClass::getCounselorId, counselor.getId()).list();
 				if (classList.isEmpty()) {
-					log.info("辅导员{}暂无管理的班级，无征订记录", counselor.getCounselorName());
-					return Result.OK("你暂无管理的班级，无征订记录", subList);
+					return mapResult(Collections.emptyList(), 0, pageNo, pageSize);
 				}
-				// 提取班级ID列表
 				List<String> classIds = classList.stream().map(TClass::getId).collect(Collectors.toList());
-
-				// 步骤3：查询这些班级下的所有学生
-				QueryWrapper<TStudent> studentWrapper = new QueryWrapper<>();
-				studentWrapper.in("class_id", classIds); // t_student的classId关联t_class.id
-				List<TStudent> studentList = tStudentService.list(studentWrapper);
-				if (studentList.isEmpty()) {
-					log.info("辅导员{}管理的班级暂无学生，无征订记录", counselor.getCounselorName());
-					return Result.OK("你管理的班级暂无学生，无征订记录", subList);
+				List<String> studentIds = tStudentService.lambdaQuery()
+					.in(TStudent::getClassId, classIds).list()
+					.stream().map(TStudent::getId).collect(Collectors.toList());
+				if (studentIds.isEmpty()) {
+					return mapResult(Collections.emptyList(), 0, pageNo, pageSize);
 				}
-				// 提取学生ID列表（t_subscription的studentId关联t_student.id）
-				List<String> studentIds = studentList.stream().map(TStudent::getId).collect(Collectors.toList());
-
-				// 步骤4：查询这些学生的所有征订记录（使用视图）
-				String studentIdInClause = String.join(",",
-						studentIds.stream().map(id -> "'" + id + "'").collect(Collectors.toList()));
-				subList = jdbcTemplate.queryForList("SELECT * FROM v_subscription_with_details WHERE student_id IN ("
-						+ studentIdInClause + ")" + andClause
-						+ " ORDER BY createTime DESC");
-				log.info("辅导员{}模式，查询到管理班级下{}条征订记录", counselor.getCounselorName(), subList.size());
-			} else {
-				// 学生逻辑（保持原有不变）
-				String username = loginUser.getUsername();
-				if (username == null || username.isEmpty()) {
-					log.warn("当前登录用户无用户名（学号）信息");
-					return Result.error("当前登录用户无用户名（学号）信息");
-				}
-
-				// 通过学号查询学生信息
-				QueryWrapper<TStudent> studentWrapper = new QueryWrapper<>();
-				studentWrapper.eq("student_id", username);
-				TStudent student = tStudentService.getOne(studentWrapper);
+				roleFilter = " AND s.student_id IN ('" + String.join("','", studentIds) + "')";
+			} else if (!isAdmin) {
+				// 学生：仅看自己
+				TStudent student = tStudentService.lambdaQuery()
+					.eq(TStudent::getStudentId, loginUser.getUsername()).one();
 				if (student == null) {
-					log.warn("当前登录用户未关联学生信息，用户名: {}", username);
-					return Result.error("当前登录用户未关联学生信息，用户名: " + username);
+					return mapResult(Collections.emptyList(), 0, pageNo, pageSize);
 				}
-
-				// 查询该学生的征订记录（使用视图）
-				StringBuilder studentSql = new StringBuilder(
-						"SELECT * FROM v_subscription_with_details WHERE student_id = ?");
-				List<Object> params = new ArrayList<>();
-				params.add(student.getId());
-
-				if (oConvertUtils.isNotEmpty(subscriptionYear)) {
-					studentSql.append(" AND subscriptionYear = ?");
-					params.add(subscriptionYear);
-				}
-				if (oConvertUtils.isNotEmpty(subscriptionSemester)) {
-						String semText = "1".equals(subscriptionSemester) ? "第一学期" : "第二学期";
-						String semShort = "1".equals(subscriptionSemester) ? "一" : "二";
-						studentSql.append(" AND (subscriptionSemester = ? OR subscriptionSemester = ? OR subscriptionSemester = ?)");
-						params.add(subscriptionSemester);
-						params.add(semText);
-						params.add(semShort);
-					}
-				studentSql.append(" ORDER BY subscribeTime DESC");
-
-				Object[] paramArray = params.toArray();
-				subList = jdbcTemplate.queryForList(studentSql.toString(), paramArray);
-				log.info("学生模式，查询到{}条征订记录", subList.size());
+				roleFilter = " AND s.student_id = '" + student.getId() + "'";
 			}
 
-			return Result.OK("", subList);
+			// 4. 构建通用筛选条件
+			StringBuilder filterSql = new StringBuilder();
+
+			if (oConvertUtils.isNotEmpty(subscriptionYear)) {
+				filterSql.append(" AND s.subscription_year = '").append(subscriptionYear).append("'");
+			}
+			if (oConvertUtils.isNotEmpty(subscriptionSemester)) {
+				String semText = "1".equals(subscriptionSemester) ? "第一学期" : "第二学期";
+				String semShort = "1".equals(subscriptionSemester) ? "一" : "二";
+				filterSql.append(" AND s.subscription_semester IN ('")
+					.append(subscriptionSemester).append("','").append(semText).append("','").append(semShort).append("')");
+			}
+			if (oConvertUtils.isNotEmpty(subscribeStatus)) {
+				filterSql.append(" AND s.subscribe_status = '").append(subscribeStatus).append("'");
+			}
+			if (oConvertUtils.isNotEmpty(studentIdPrefix)) {
+				filterSql.append(" AND st.student_id LIKE '").append(studentIdPrefix.trim()).append("%'");
+			}
+			if (oConvertUtils.isNotEmpty(studentId)) {
+				String key = studentId.trim();
+				filterSql.append(" AND (st.student_id LIKE '%").append(key)
+					.append("%' OR st.student_name LIKE '%").append(key).append("%')");
+			}
+			if (oConvertUtils.isNotEmpty(collegeName)) {
+				filterSql.append(" AND c.college_name LIKE '%").append(collegeName.trim()).append("%'");
+			}
+			if (oConvertUtils.isNotEmpty(majorName)) {
+				filterSql.append(" AND m.major_name LIKE '%").append(majorName.trim()).append("%'");
+			}
+			if (oConvertUtils.isNotEmpty(className)) {
+				filterSql.append(" AND cl.class_name LIKE '%").append(className.trim()).append("%'");
+			}
+
+			// 5. 基础 FROM（完整 JOIN，覆盖视图所有字段 + className）
+			String baseFrom = " FROM t_subscription s"
+				+ " LEFT JOIN t_student st ON s.student_id = st.id"
+				+ " LEFT JOIN t_textbook tb ON s.textbook_id = tb.id"
+				+ " LEFT JOIN t_major m ON s.major_id = m.id"
+				+ " LEFT JOIN t_college c ON m.college_id = c.id"
+				+ " LEFT JOIN t_class cl ON st.class_id = cl.id"
+				+ " WHERE 1=1" + roleFilter + filterSql.toString();
+
+			// 6. COUNT 查询
+			long totalCount = jdbcTemplate.queryForObject("SELECT COUNT(*)" + baseFrom, Long.class);
+
+			// 7. 排序（前端列名 → 数据库列名）
+			String orderClause;
+			java.util.Map<String, String> sortMap = new java.util.HashMap<>();
+			sortMap.put("studentNo", "st.student_id");
+			sortMap.put("studentName", "st.student_name");
+			sortMap.put("textbookName", "tb.textbook_name");
+			sortMap.put("isbn", "tb.isbn");
+			sortMap.put("majorName", "m.major_name");
+			sortMap.put("collegeName", "c.college_name");
+			sortMap.put("className", "cl.class_name");
+			sortMap.put("subscriptionYear", "s.subscription_year");
+			sortMap.put("subscriptionSemester", "s.subscription_semester");
+			sortMap.put("subscribeStatus", "s.subscribe_status");
+			sortMap.put("subscribeTime", "s.subscribe_time");
+			sortMap.put("createTime", "s.create_time");
+			if (oConvertUtils.isNotEmpty(column) && sortMap.containsKey(column)) {
+				String dir = "asc".equalsIgnoreCase(order != null ? order : "") ? "ASC" : "DESC";
+				orderClause = " ORDER BY " + sortMap.get(column) + " " + dir;
+			} else {
+				orderClause = " ORDER BY s.create_time DESC";
+			}
+
+			// 8. 数据查询（LIMIT/OFFSET，与视图别名兼容）
+			String dataSql = "SELECT s.id, s.student_id, st.student_id AS studentNo, st.student_name AS studentName,"
+				+ " s.textbook_id, tb.textbook_name AS textbook_name, tb.isbn AS isbn,"
+				+ " s.selection_id, s.major_id, m.major_name AS majorName,"
+				+ " m.college_id, c.college_name AS collegeName,"
+				+ " s.subscription_year AS subscriptionYear, s.subscription_semester AS subscriptionSemester,"
+				+ " s.subscribe_status AS subscribeStatus, s.remark,"
+				+ " s.subscribe_time AS subscribeTime, s.create_time AS createTime, s.update_time AS updateTime,"
+				+ " cl.class_name AS className"
+				+ baseFrom + orderClause
+				+ " LIMIT " + pageSize + " OFFSET " + ((pageNo - 1) * pageSize);
+
+			List<Map<String, Object>> records = jdbcTemplate.queryForList(dataSql);
+
+			log.info("查询到{}条征订记录（总数: {}，第{}页/每页{}条）", records.size(), totalCount, pageNo, pageSize);
+
+			return mapResult(records, totalCount, pageNo, pageSize);
 		} catch (Exception e) {
 			log.error("获取征订记录失败", e);
 			return Result.error("获取失败：" + e.getMessage());
 		}
+	}
+
+	/** 构建分页结果 */
+	private Result<Map<String, Object>> mapResult(List<Map<String, Object>> records, long total, int pageNo, int pageSize) {
+		Map<String, Object> result = new HashMap<>();
+		result.put("records", records);
+		result.put("total", total);
+		result.put("pageNo", pageNo);
+		result.put("pageSize", pageSize);
+		return Result.OK(result);
 	}
 
 	/**

@@ -185,196 +185,76 @@ const getStudentInfoSafely = async (studentNo: string) => {
 
 const allSubscriptionKeys = ref<string[]>([]);
 
-// ========== 重构fetchTableData，使用视图数据 ==========
-const fetchTableData = async (params = {}) => {
-  try {
-    const roleType = unref(userRoleType);
-    console.log(`【${roleType}端】开始获取数据，参数：`, params);
+// ========== fetchTableData，服务端分页/筛选/排序 ==========
+  const fetchTableData = async (params = {}) => {
+    try {
+      const roleType = unref(userRoleType);
+      console.log(`【${roleType}端】开始获取数据，参数：`, params);
 
-    // 1. 调用后端接口获取对应角色的全量数据（使用视图）
-    const res = await getMySubscription(params);
-    const rawRecords = res?.success ? res.result : (Array.isArray(res) ? res : []);
+      // 1. 调用后端分页接口（defHttp已unwrap: res = response.data.result）
+      const res = await getMySubscription(params);
+      // 兼容新旧后端：新后端返回{records,total,...}，旧后端返回数组
+      const rawRecords = Array.isArray(res) ? res : (res?.records || []);
+      const total = Array.isArray(res) ? res.length : (res?.total || 0);
 
-    if (rawRecords.length === 0) {
+      if (rawRecords.length === 0) {
+        return {records: [], total: 0};
+      }
+
+      // 2. 学生端：获取当前登录学生ID
+      if (unref(isStudent)) {
+        currentStudentId.value = rawRecords[0]?.studentId || rawRecords[0]?.student_id;
+        const userInfo = userStore.getUserInfo || {};
+        const studentNo = userInfo.username || '';
+        if (studentNo) {
+          try {
+            const studentInfo = await getStudentInfoSafely(studentNo);
+            if (studentInfo) {
+              currentStudentInfo.value = studentInfo;
+              currentStudentId.value = studentInfo.id;
+            }
+          } catch (e) {
+            console.debug('获取学生信息失败：', e.message);
+          }
+        }
+      }
+
+      // 3. 格式化数据（后端已做筛选排序分页，此处仅做字段兼容）
+      const formattedRecords: Recordable[] = rawRecords.map(item => ({
+        ...item,
+        id: item.id,
+        studentId: item.student_id || item.studentId,
+        textbookId: item.textbook_id || item.textbookId,
+        majorId: item.major_id || item.majorId,
+        selectionId: item.selection_id || item.selectionId,
+        studentNo: item.studentNo || item.student_no || '未知学号',
+        studentName: item.studentName || item.student_name || '未知姓名',
+        textbookName: item.textbookName || item.textbook_name || '未知教材',
+        isbn: item.isbn || '',
+        majorName: item.majorName || item.major_name || '未知专业',
+        collegeName: item.collegeName || item.college_name || '未知学院',
+        className: item.className || item.class_name || '',
+        subscriptionSemester: item.subscriptionSemester || item.subscription_semester || '',
+        subscriptionSemester_dictText: (item.subscriptionSemester || item.subscription_semester) === '1' ? '第一学期' : '第二学期',
+        subscribeStatus: normalizeSubscribeStatus(item.subscribeStatus || item.subscribe_status),
+        subscribeStatus_dictText: getSubscribeStatusText(normalizeSubscribeStatus(item.subscribeStatus || item.subscribe_status)),
+        key: item.id || Math.random().toString(36).substr(2, 9)
+      }));
+
+      allSubscriptionKeys.value = formattedRecords.map((r: any) => r.id);
+
+      console.log(`【${roleType}端】获取到${formattedRecords.length}条记录（总数: ${total}）`);
+
+      return {
+        records: formattedRecords,
+        total: total
+      };
+    } catch (e) {
+      console.error('【获取征订数据异常】：', e);
+      createMessage.error('获取征订记录失败：' + (e.message || '网络异常'));
       return {records: [], total: 0};
     }
-
-    // 2. 仅学生端执行：获取当前登录学生ID
-    if (unref(isStudent)) {
-      // 首先从第一条记录中获取学生ID（兼容 studentId 和 student_id）
-      currentStudentId.value = rawRecords[0]?.studentId || rawRecords[0]?.student_id;
-
-      // 调试日志
-      console.log("【调试】从记录中获取的studentId:", currentStudentId.value);
-
-      // 尝试通过学号获取学生信息（可选）
-      const userInfo = userStore.getUserInfo || {};
-      const studentNo = userInfo.username || "";
-      if (studentNo) {
-        try {
-          const studentInfo = await getStudentInfoSafely(studentNo);
-          if (studentInfo) {
-            currentStudentInfo.value = studentInfo;
-            // 如果获取到学生信息，使用学生的数据库ID
-            currentStudentId.value = studentInfo.id;
-            console.log("【调试】从学生信息中获取的studentId:", currentStudentId.value);
-          }
-        } catch (e) {
-          console.debug("获取学生信息失败：", e.message);
-        }
-      }
-    }
-
-
-    // 3. 格式化数据（直接使用视图返回的数据）
-    // 调试：打印前3条原始数据的征订状态
-    if (rawRecords.length > 0) {
-      console.log('【调试】原始数据前3条subscribe_status值：',
-        rawRecords.slice(0, 3).map(item => ({
-          subscribeStatus: item.subscribeStatus,
-          subscribe_status: item.subscribe_status,
-          allKeys: Object.keys(item).filter(k => k.toLowerCase().includes('subscri') || k.toLowerCase().includes('status'))
-        }))
-      );
-    }
-    const formattedRecords: Recordable[] = rawRecords.map(item => ({
-      ...item,
-      id: item.id,
-      studentId: item.student_id || item.studentId,
-      textbookId: item.textbook_id || item.textbookId,
-      majorId: item.major_id || item.majorId,
-      selectionId: item.selection_id || item.selectionId,
-      studentNo: item.studentNo || item.student_no || '未知学号',
-      studentName: item.studentName || item.student_name || '未知姓名',
-      textbookName: item.textbookName || item.textbook_name || '未知教材',
-      isbn: item.isbn || '',
-      majorName: item.majorName || item.major_name || '未知专业',
-      collegeName: item.collegeName || item.college_name || '未知学院',
-      className: item.className || item.class_name || '',
-      subscriptionSemester: item.subscriptionSemester || item.subscription_semester || '',
-      subscriptionSemester_dictText: (item.subscriptionSemester || item.subscription_semester) === '1' ? '第一学期' : '第二学期',
-      subscribeStatus: normalizeSubscribeStatus(item.subscribeStatus || item.subscribe_status),
-      subscribeStatus_dictText: getSubscribeStatusText(normalizeSubscribeStatus(item.subscribeStatus || item.subscribe_status)),
-      key: item.id || Math.random().toString(36).substr(2, 9)
-    }));
-
-    // 4. 仅管理员/辅导员执行前端筛选（注意：后端已经按学年筛选了，这里只是额外的前端筛选）
-    let filteredRecords = [...formattedRecords];
-    if ((unref(isAdmin) || unref(isCounselor)) && Object.keys(params).length > 0) {
-      // 班级筛选：通过班级名查找学生ID，再按学生ID过滤
-      if (params.className) {
-        try {
-          const className = params.className.trim();
-          // 1. 查找班级获取classId
-          const classRes = await defHttp.get({ url: '/zbu/tClass/list', params: { pageSize: 999, pageNo: 1, className } });
-          const classRecords = classRes.records || [];
-          const classIds = classRecords.map((c: any) => c.id);
-          if (classIds.length > 0) {
-            // 2. 查找该班级下的所有学生
-            const stuRes = await defHttp.get({ url: '/zbu/tStudent/list', params: { pageSize: 9999, pageNo: 1 } });
-            const stuRecords = stuRes.records || [];
-            const studentIdsInClass = stuRecords
-              .filter((s: any) => classIds.includes(s.classId))
-              .map((s: any) => s.id);
-            // 3. 按学生ID过滤征订记录
-            filteredRecords = filteredRecords.filter(item =>
-              studentIdsInClass.includes(item.studentId)
-            );
-          } else {
-            filteredRecords = [];
-          }
-        } catch (e) {
-          console.error('班级筛选失败：', e);
-        }
-      }
-      if (params.studentId) {
-        const searchKey = params.studentId.trim().toLowerCase();
-        filteredRecords = filteredRecords.filter(item =>
-          (item.studentNo || '').toLowerCase().includes(searchKey) ||
-          (item.studentName || '').toLowerCase().includes(searchKey)
-        );
-      }
-      if (params.majorName) {
-        const searchKey = params.majorName.trim().toLowerCase();
-        filteredRecords = filteredRecords.filter(item =>
-          (item.majorName || '').toLowerCase().includes(searchKey)
-        );
-      }
-      if (params.subscriptionYear) {
-        filteredRecords = filteredRecords.filter(item =>
-          (item.subscriptionYear || '').toLowerCase().includes(params.subscriptionYear.trim().toLowerCase())
-        );
-      }
-      if (params.subscriptionSemester) {
-        const semesterList = Array.isArray(params.subscriptionSemester)
-          ? params.subscriptionSemester
-          : [params.subscriptionSemester];
-        filteredRecords = filteredRecords.filter(item =>
-          semesterList.includes(item.subscriptionSemester)
-        );
-      }
-      if (params.subscribeStatus) {
-        const statusList = Array.isArray(params.subscribeStatus)
-          ? params.subscribeStatus
-          : [params.subscribeStatus];
-        filteredRecords = filteredRecords.filter(item =>
-          statusList.includes(item.subscribeStatus)
-        );
-      }
-      if (params.collegeName) {
-        const searchKey = params.collegeName.trim().toLowerCase();
-        filteredRecords = filteredRecords.filter(item => {
-          // 使用学院名称进行模糊匹配
-          return (item.collegeName || '').toLowerCase().includes(searchKey);
-        });
-      }
-      if (params.studentIdPrefix) {
-        const prefix = params.studentIdPrefix.trim();
-        if (prefix.length === 2) {
-          filteredRecords = filteredRecords.filter(item => {
-            // 检查学号前两位是否等于输入值
-            return item.studentNo && item.studentNo.startsWith(prefix);
-          });
-        }
-      }
-    }
-
-    // 5. 处理排序
-    if (params.column && params.order) {
-      filteredRecords.sort((a, b) => {
-        const field = params.column;
-        const order = params.order === 'asc' ? 1 : -1;
-
-        // 处理不同类型字段的排序
-        if (typeof a[field] === 'string' && typeof b[field] === 'string') {
-          return a[field].localeCompare(b[field]) * order;
-        } else if (typeof a[field] === 'number' && typeof b[field] === 'number') {
-          return (a[field] - b[field]) * order;
-        } else if (a[field] instanceof Date && b[field] instanceof Date) {
-          return (a[field].getTime() - b[field].getTime()) * order;
-        } else if (a[field] && b[field]) {
-          // 处理其他类型的排序
-          return String(a[field]).localeCompare(String(b[field])) * order;
-        }
-        return 0;
-      });
-    }
-
-    console.log(`【${roleType}端】筛选排序后数据：`, filteredRecords);
-
-    allSubscriptionKeys.value = filteredRecords.map((r: any) => r.id);
-
-    return {
-      records: filteredRecords,
-      total: filteredRecords.length
-    };
-  } catch (e) {
-    console.error('【获取征订数据异常】：', e);
-    createMessage.error('获取征订记录失败：' + (e.message || '网络异常'));
-    return {records: [], total: 0};
-  }
-};
-
+  };
 
 
 // 注册表格（ 修改3：学生端隐藏操作列）
