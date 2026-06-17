@@ -483,7 +483,7 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 						er.createCell(3).setCellValue(str(row.get("receiveStatus")));
 						er.createCell(4).setCellValue(str(row.get("subscriptionYear")));
 						String sem = str(row.get("subscriptionSemester"));
-						if ("1".equals(sem)||"一".equals(sem)||"第一学期".equals(sem)) sem="一"; else if ("2".equals(sem)||"二".equals(sem)||"第二学期".equals(sem)) sem="二";
+						if ("1".equals(sem)||"一".equals(sem)||"第一学期".equals(sem)) sem="第一学期"; else if ("2".equals(sem)||"二".equals(sem)||"第二学期".equals(sem)) sem="第二学期";
 						er.createCell(5).setCellValue(sem);
 						Object rt = row.get("receiveTime"); er.createCell(6).setCellValue(rt!=null?rt.toString():"");
 						er.createCell(7).setCellValue(str(row.get("receiveRemark")));
@@ -1035,9 +1035,9 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 				if (semObj != null) {
 					String s = semObj.toString().trim();
 					if ("1".equals(s) || "一".equals(s) || "第一学期".equals(s)) {
-						record.put("subscriptionSemester", "一");
+						record.put("subscriptionSemester", "第一学期");
 					} else if ("2".equals(s) || "二".equals(s) || "第二学期".equals(s)) {
-						record.put("subscriptionSemester", "二");
+						record.put("subscriptionSemester", "第二学期");
 					}
 				}
 			}

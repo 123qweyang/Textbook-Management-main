@@ -126,7 +126,7 @@ export const searchFormSchema: FormSchema[] = [
     field: 'selectionStatus',
     component: 'JSelectMultiple',
     componentProps: {
-      dictCode: "use_state"
+      dictCode: "selection_status"
     },
   },
 ];
@@ -225,7 +225,7 @@ export const formSchema: FormSchema[] = [
     defaultValue: "1",
     component: 'JDictSelectTag',
     componentProps: {
-      dictCode: "use_state",
+      dictCode: "selection_status",
     },
     dynamicRules: ({ model, schema }) => {
       return [
@@ -254,7 +254,7 @@ export const superQuerySchema = {
   textbookId: { title: '教材', order: 2, view: 'link_table', type: 'string', },
   schoolYear: { title: '学年', order: 3, view: 'text', type: 'string', },
   semester: { title: '学期', order: 4, view: 'list', type: 'string', dictCode: 'semester', },
-  selectionStatus: { title: '生效状态', order: 5, view: 'list', type: 'string', dictCode: 'use_state', },
+  selectionStatus: { title: '生效状态', order: 5, view: 'list', type: 'string', dictCode: 'selection_status', },
   remark: { title: '备注', order: 6, view: 'text', type: 'string', },
   createTime: { title: '创建日期', order: 7, view: 'datetime', type: 'string', },
   updateTime: { title: '更新日期', order: 8, view: 'datetime', type: 'string', },

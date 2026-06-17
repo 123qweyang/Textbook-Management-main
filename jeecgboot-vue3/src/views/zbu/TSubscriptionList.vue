@@ -187,6 +187,7 @@ const allSubscriptionKeys = ref<string[]>([]);
 
 // ========== fetchTableData，服务端分页/筛选/排序 ==========
   const fetchTableData = async (params = {}) => {
+    selectedRowKeys.value = []; // 翻页/筛选时清空上一页勾选
     try {
       const roleType = unref(userRoleType);
       console.log(`【${roleType}端】开始获取数据，参数：`, params);
@@ -435,7 +436,7 @@ async function handleDelete(record) {
   await deleteOne({id: record.id}, handleSuccess);
 }
 async function batchHandleDelete() {
-  await batchDelete({ids: selectedRowKeys.value}, handleSuccess);
+  await batchDelete({ids: selectedRowKeys.value.join(',')}, handleSuccess);
 }
 function handleSuccess() {
   selectedRowKeys.value = [];

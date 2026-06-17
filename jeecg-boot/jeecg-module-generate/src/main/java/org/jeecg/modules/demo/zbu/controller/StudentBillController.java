@@ -936,7 +936,7 @@ public class StudentBillController extends JeecgController<StudentBill, IStudent
 						er.createCell(4).setCellValue(str(row.get("majorName")));
 						er.createCell(5).setCellValue(str(row.get("subscriptionYear")));
 						String sem = str(row.get("subscriptionSemester"));
-						if ("1".equals(sem)||"一".equals(sem)||"第一学期".equals(sem)) sem="一"; else if ("2".equals(sem)||"二".equals(sem)||"第二学期".equals(sem)) sem="二";
+						if ("1".equals(sem)||"一".equals(sem)||"第一学期".equals(sem)) sem="第一学期"; else if ("2".equals(sem)||"二".equals(sem)||"第二学期".equals(sem)) sem="第二学期";
 						er.createCell(6).setCellValue(sem);
 						String ss = str(row.get("subscribeStatus")); er.createCell(7).setCellValue("1".equals(ss)?"已征订":"未征订");
 						er.createCell(8).setCellValue(str(row.get("textbookName")));

@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 项目概述
 
 教材管理云平台，基于 JeecgBoot 3.9.0（Spring Boot 3 + MyBatis-Plus + Vue 3 + Ant Design Vue）。
-本地开发环境：JDK17，MySQL 5.7.44，Maven 3.9.12，Redis 无密码。
+本地开发环境：JDK17，MySQL 8.0.46，Maven 3.9.12，Redis 无密码。
 
 ## 常用命令
 

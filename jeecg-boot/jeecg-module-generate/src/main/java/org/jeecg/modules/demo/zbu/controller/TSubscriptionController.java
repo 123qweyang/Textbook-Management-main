@@ -277,8 +277,9 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 	@AutoLog(value = "征订表-批量删除")
 	@Operation(summary = "征订表-批量删除")
 	@RequiresPermissions("zbu:t_subscription:deleteBatch")
-	@DeleteMapping(value = "/deleteBatch")
-	public Result<String> deleteBatch(@RequestParam(name = "ids", required = true) String ids) {
+	@PostMapping(value = "/deleteBatch")
+	public Result<String> deleteBatch(@RequestBody Map<String, Object> params) {
+		String ids = (String) params.get("ids");
 		this.tSubscriptionService.removeByIds(Arrays.asList(ids.split(",")));
 		return Result.OK("批量删除成功!");
 	}
@@ -343,10 +344,7 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 			}
 			String subscriptionSemester = request.getParameter("subscriptionSemester");
 			if (oConvertUtils.isNotEmpty(subscriptionSemester)) {
-				String semText = "1".equals(subscriptionSemester) ? "第一学期" : "第二学期";
-				String semShort = "1".equals(subscriptionSemester) ? "一" : "二";
-				filterSql.append(" AND s.subscription_semester IN ('")
-					.append(subscriptionSemester).append("','").append(semText).append("','").append(semShort).append("')");
+				filterSql.append(" AND s.subscription_semester = '").append(subscriptionSemester).append("'");
 			}
 			String subscribeStatus = request.getParameter("subscribeStatus");
 			if (oConvertUtils.isNotEmpty(subscribeStatus)) {
@@ -447,8 +445,8 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 						excelRow.createCell(7).setCellValue(str(row.get("subscriptionYear")));
 						// 学期标准化
 						String sem = str(row.get("subscriptionSemester"));
-						if ("1".equals(sem) || "一".equals(sem) || "第一学期".equals(sem)) sem = "一";
-						else if ("2".equals(sem) || "二".equals(sem) || "第二学期".equals(sem)) sem = "二";
+						if ("1".equals(sem) || "一".equals(sem) || "第一学期".equals(sem)) sem = "第一学期";
+						else if ("2".equals(sem) || "二".equals(sem) || "第二学期".equals(sem)) sem = "第二学期";
 						excelRow.createCell(8).setCellValue(sem);
 						// 状态标准化
 						String status = str(row.get("subscribeStatus"));
@@ -680,10 +678,7 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 				filterSql.append(" AND s.subscription_year = '").append(subscriptionYear).append("'");
 			}
 			if (oConvertUtils.isNotEmpty(subscriptionSemester)) {
-				String semText = "1".equals(subscriptionSemester) ? "第一学期" : "第二学期";
-				String semShort = "1".equals(subscriptionSemester) ? "一" : "二";
-				filterSql.append(" AND s.subscription_semester IN ('")
-					.append(subscriptionSemester).append("','").append(semText).append("','").append(semShort).append("')");
+				filterSql.append(" AND s.subscription_semester = '").append(subscriptionSemester).append("'");
 			}
 			if (oConvertUtils.isNotEmpty(subscribeStatus)) {
 				filterSql.append(" AND s.subscribe_status = '").append(subscribeStatus).append("'");

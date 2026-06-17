@@ -84,8 +84,8 @@ public class TTextbookSelection implements Serializable {
 	@Schema(description = "学期")
 	private java.lang.String semester;
 	/** 生效状态 */
-	@Excel(name = "生效状态", width = 15, dicCode = "use_state")
-	@Dict(dicCode = "use_state")
+	@Excel(name = "生效状态", width = 15, dicCode = "selection_status")
+	@Dict(dicCode = "selection_status")
 	@Schema(description = "生效状态")
 	private java.lang.String selectionStatus;
 	/** 备注 */

@@ -91,6 +91,8 @@ public class TMajorController extends JeecgController<TMajor, ITMajorService> {
 	@RequiresPermissions("zbu:t_major:add")
 	@PostMapping(value = "/add")
 	public Result<String> add(@RequestBody TMajor tMajor) {
+		// 归一化标点符号，避免全半角导致重复
+		tMajor.setMajorName(normalizePunctuation(tMajor.getMajorName()));
 		QueryWrapper<TMajor> codeWrapper = new QueryWrapper<>();
 		codeWrapper.eq("major_code", tMajor.getMajorCode());
 		if (tMajorService.count(codeWrapper) > 0) {
@@ -251,7 +253,7 @@ public class TMajorController extends JeecgController<TMajor, ITMajorService> {
 						failMsgList.add("第" + totalRow + "行：专业名称为空（编码：" + majorCode + "），跳过导入");
 						continue;
 					}
-					major.setMajorName(majorName.trim());
+					major.setMajorName(normalizePunctuation(majorName.trim()));
 
 					if (oConvertUtils.isEmpty(major.getCollegeId())) {
 						failMsgList.add("第" + totalRow + "行：所属学院为空（编码：" + majorCode + "），跳过导入");
@@ -297,4 +299,19 @@ public class TMajorController extends JeecgController<TMajor, ITMajorService> {
 
 	}
 
+
+	/**
+	 * 全角标点转半角，避免因括号等符号全半角不一致导致重复数据
+	 */
+	private String normalizePunctuation(String s) {
+		if (s == null) return null;
+		return s.replace('（', '(')
+			.replace('）', ')')
+			.replace('，', ',')
+			.replace('；', ';')
+			.replace('：', ':')
+			.replace('、', ',')
+			.replace('－', '-')
+			.replace('．', '.');
+	}
 }

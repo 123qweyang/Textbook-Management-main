@@ -128,12 +128,24 @@ import { useMethods } from '/@/hooks/system/useMethods'
 
   const [registerTable, {reload},{ rowSelection, selectedRowKeys }] = tableContext
 
-  // 全选时选择当前筛选条件下的所有数据（同步，使用预加载ID）
-  rowSelection.onSelectAll = (selected) => {
-    if (selected && allTableKeys.value.length > 0) {
-      selectedRowKeys.value = [...allTableKeys.value];
-    } else {
+  // 全选时选择当前筛选条件下的所有数据（异步加载 + loading 提示）
+  const selectingAll = ref(false);
+  rowSelection.onSelectAll = async (selected) => {
+    if (!selected) {
       selectedRowKeys.value = [];
+      return;
+    }
+    if (selectingAll.value) return;
+    selectingAll.value = true;
+    const hide = createMessage.loading('正在加载全选数据...', 0);
+    try {
+      if (allTableKeys.value.length === 0) {
+        await loadAllKeys();
+      }
+      selectedRowKeys.value = allTableKeys.value.length > 0 ? [...allTableKeys.value] : [];
+    } finally {
+      hide();
+      selectingAll.value = false;
     }
   };
 // 更新Excel上传
@@ -193,7 +205,7 @@ function onUpdateXls(file) {
     * 批量删除事件
     */
   async function batchHandleDelete() {
-     await batchDelete({ids: selectedRowKeys.value}, handleSuccess);
+     await batchDelete({ids: selectedRowKeys.value.join(',')}, handleSuccess);
    }
    /**
     * 成功回调

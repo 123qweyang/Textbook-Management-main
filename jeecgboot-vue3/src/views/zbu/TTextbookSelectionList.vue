@@ -30,6 +30,12 @@
       </template>
       <!--字段回显插槽-->
       <template v-slot:bodyCell="{ column, record, index, text }">
+        <template v-if="column.dataIndex === 'semester'">
+          {{ record.semester === '1' ? '第一学期' : record.semester === '2' ? '第二学期' : record.semester }}
+        </template>
+        <template v-if="column.dataIndex === 'selectionStatus'">
+          {{ record.selectionStatus === '1' ? '生效' : record.selectionStatus === '0' ? '失效' : record.selectionStatus }}
+        </template>
       </template>
     </BasicTable>
     <!-- 表单区域 -->

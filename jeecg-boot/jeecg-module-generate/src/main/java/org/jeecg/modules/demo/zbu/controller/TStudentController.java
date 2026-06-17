@@ -530,9 +530,10 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 	@AutoLog(value = "学生表-批量删除")
 	@Operation(summary = "学生表-批量删除")
 	@RequiresPermissions("zbu:t_student:deleteBatch")
-	@DeleteMapping(value = "/deleteBatch")
+	@PostMapping(value = "/deleteBatch")
 	@Transactional(rollbackFor = Exception.class)
-	public Result<String> deleteBatch(@RequestParam(name = "ids", required = true) String ids) {
+	public Result<String> deleteBatch(@RequestBody Map<String, Object> params) {
+		String ids = (String) params.get("ids");
 
 		try {
 			log.info("开始批量删除学生：ids={}", ids);

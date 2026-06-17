@@ -141,6 +141,8 @@ public class TClassController extends JeecgController<TClass, ITClassService> {
 	@RequiresPermissions("zbu:t_class:add")
 	@PostMapping(value = "/add")
 	public Result<String> add(@RequestBody TClass tClass) {
+		// 归一化标点符号，避免全半角导致重复
+		tClass.setClassName(normalizePunctuation(tClass.getClassName()));
 
 		// 检查班级编码是否已存在
 		QueryWrapper<TClass> codeWrapper = new QueryWrapper<>();
@@ -500,7 +502,8 @@ public class TClassController extends JeecgController<TClass, ITClassService> {
 						failMsgList.add("第" + totalRow + "行：班级名称为空（编码：" + classCode + "），跳过导入");
 						continue;
 					}
-					clazz.setClassName(className.trim());
+					clazz.setClassName(normalizePunctuation(className.trim()));
+					className = normalizePunctuation(className.trim());
 
 					// 5.3 所属专业空值校验
 					if (oConvertUtils.isEmpty(clazz.getMajorId())) {
@@ -605,4 +608,19 @@ public class TClassController extends JeecgController<TClass, ITClassService> {
 		}
 	}
 
+
+	/**
+	 * 全角标点转半角，避免因括号等符号全半角不一致导致重复数据
+	 */
+	private String normalizePunctuation(String s) {
+		if (s == null) return null;
+		return s.replace('（', '(')
+			.replace('）', ')')
+			.replace('，', ',')
+			.replace('；', ';')
+			.replace('：', ':')
+			.replace('、', ',')
+			.replace('－', '-')
+			.replace('．', '.');
+	}
 }

@@ -171,23 +171,7 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 		// 执行查询
 		List<Map<String, Object>> records = jdbcTemplate.queryForList(baseSql);
 
-		// 转换字典值
-		for (Map<String, Object> record : records) {
-			// 转换学期
-			String semester = (String) record.get("semester");
-			if ("1".equals(semester)) {
-				record.put("semester", "第一学期");
-			} else if ("2".equals(semester)) {
-				record.put("semester", "第二学期");
-			}
-			// 转换生效状态
-			String selectionStatus = (String) record.get("selectionStatus");
-			if ("1".equals(selectionStatus)) {
-				record.put("selectionStatus", "生效");
-			} else if ("0".equals(selectionStatus)) {
-				record.put("selectionStatus", "未生效");
-			}
-		}
+			// 列表不再手动转换中文，由前端 dictCode 自动翻译，避免编辑时脏写回数据库
 
 		// 获取总数
 		int total = jdbcTemplate.queryForObject(countSql, Integer.class);
@@ -868,9 +852,16 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 						er.createCell(1).setCellValue(str(row.get("className")));
 						er.createCell(2).setCellValue(str(row.get("textbookName")));
 						er.createCell(3).setCellValue(str(row.get("isbn")));
-						er.createCell(4).setCellValue(str(row.get("schoolYear")));
-						er.createCell(5).setCellValue(str(row.get("semester")));
-						er.createCell(6).setCellValue(str(row.get("selectionStatus")));
+					er.createCell(4).setCellValue(str(row.get("schoolYear")));
+					// 学期和生效状态归一化
+					String sem = str(row.get("semester"));
+					if ("1".equals(sem) || "一".equals(sem) || "第一学期".equals(sem)) sem = "第一学期";
+					else if ("2".equals(sem) || "二".equals(sem) || "第二学期".equals(sem)) sem = "第二学期";
+					er.createCell(5).setCellValue(sem);
+					String selStatus = str(row.get("selectionStatus"));
+					if ("1".equals(selStatus) || "启用".equals(selStatus)) selStatus = "生效";
+					else if ("0".equals(selStatus) || "停用".equals(selStatus) || "未生效".equals(selStatus)) selStatus = "失效";
+					er.createCell(6).setCellValue(selStatus);
 						er.createCell(7).setCellValue(str(row.get("remark")));
 					}
 					log.info("教材选用表导出进度：{}/{}", rowIdx-1, totalCount);
@@ -921,6 +912,8 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 				List<String> errorMsgList = new ArrayList<>();
 				// 存储原始的专业/班级输入内容，使用行索引作为key（因为修改selection字段会改变hashCode导致Map找不到）
 				Map<Integer, String> rawMajorInputMap = new HashMap<>();
+				// 存储原始的班级输入（Excel有独立班级列时使用）
+				Map<Integer, String> rawClassInputMap = new HashMap<>();
 				// 存储原始的备注内容（remark被临时用作行号存储，需要提前保存原始值）
 					Map<Integer, String> originalRemarkMap = new HashMap<>();
 
@@ -939,10 +932,16 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 						isValid = false;
 					} else {
 						// 保存原始输入内容，使用行索引作为key
-						rawMajorInputMap.put(rowNum, majorContent.trim());
+						rawMajorInputMap.put(rowNum, normalizePunctuation(majorContent.trim()));
 						selection.setMajorId(""); // 临时设置为空
 					}
 
+						// ===== 班级解析（Excel有独立班级列时保存原始输入） =====
+						String classContent = selection.getClassId();
+						if (!oConvertUtils.isEmpty(classContent)) {
+							rawClassInputMap.put(rowNum, normalizePunctuation(classContent.trim()));
+							selection.setClassId(""); // 临时设置为空，后续双路径处理
+						}
 					// ===== 教材解析（兼容ID/名称） =====
 					String textbookContent = selection.getTextbookId();
 					String textbookIsbn = null;
@@ -997,9 +996,17 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 							selection.setSemester("2");
 						}
 					}
-						if (oConvertUtils.isEmpty(selection.getSelectionStatus())) {
-							selection.setSelectionStatus("1"); // 默认启用
+					if (oConvertUtils.isEmpty(selection.getSelectionStatus())) {
+						selection.setSelectionStatus("1"); // 默认生效
+					} else {
+						// 统一生效状态为字典码（兼容导入Excel中的文本写法）
+						String status = selection.getSelectionStatus().trim();
+						if ("生效".equals(status) || "启用".equals(status)) {
+							selection.setSelectionStatus("1");
+						} else if ("失效".equals(status) || "停用".equals(status) || "未生效".equals(status)) {
+							selection.setSelectionStatus("0");
 						}
+					}
 						selection.setCreateTime(new Date());
 						selection.setUpdateTime(new Date());
 						// 将行号附加到selection上，用于后续查找原始输入
@@ -1029,10 +1036,24 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 					// 从remark中获取行号（之前临时存储的）
 					Integer rowNum = Integer.parseInt(selection.getRemark());
 					String rawMajorContent = rawMajorInputMap.getOrDefault(rowNum, "");
-					log.info("开始处理第{}行原始专业输入：{}", rowNum, rawMajorContent);
+					String rawClassContent = rawClassInputMap.getOrDefault(rowNum, "");
+					log.info("开始处理第{}行原始专业输入：{}，原始班级输入：{}", rowNum, rawMajorContent, rawClassContent);
 
 					// 解析专业/班级（支持分号、顿号等多种分隔符）
-					List<TClass> matchedClasses = parseMajorAndClassContent(rawMajorContent, rowNum);
+					// 双路径：有独立班级列 → 直接查班级；否则 → 从专业字段解析拆分
+					List<TClass> matchedClasses;
+					if (!oConvertUtils.isEmpty(rawClassContent)) {
+						TClass clazz = findClassByIdOrName(rawClassContent);
+						if (clazz == null) {
+							String skipMsg = "第" + rowNum + "行，班级「" + rawClassContent + "」不存在，请检查。";
+							skipMsgList.add(skipMsg);
+							log.warn(skipMsg);
+							continue;
+						}
+						matchedClasses = Collections.singletonList(clazz);
+					} else {
+						matchedClasses = parseMajorAndClassContent(rawMajorContent, rowNum);
+					}
 
 					if (matchedClasses.isEmpty()) {
 						String skipMsg = "第" + rowNum + "行，专业/班级「" + rawMajorContent + "」不存在，请检查。";
@@ -1121,7 +1142,33 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 	/**
 	 * 根据班级名称查找班级
 	 */
+	/**
+	 * 全角标点转半角，避免因括号等符号全半角不一致导致重复数据
+	 */
+	private String normalizePunctuation(String s) {
+		if (s == null) return null;
+		return s.replace('（', '(')
+			.replace('）', ')')
+			.replace('，', ',')
+			.replace('；', ';')
+			.replace('：', ':')
+			.replace('、', ',')
+			.replace('－', '-')
+			.replace('．', '.');
+	}
+
+	/**
+	 * 通过班级ID或名称查找班级（双路径导入路径A）
+	 */
+	private TClass findClassByIdOrName(String s) {
+		s = normalizePunctuation(s);
+		TClass clazz = tClassService.getById(s);
+		if (clazz != null) return clazz;
+		return findClassByName(s);
+	}
+
 	private TClass findClassByName(String className) {
+		className = normalizePunctuation(className);
 		QueryWrapper<TClass> classWrapper = new QueryWrapper<>();
 		classWrapper.eq("class_name", className.trim());
 		return tClassService.getOne(classWrapper);
