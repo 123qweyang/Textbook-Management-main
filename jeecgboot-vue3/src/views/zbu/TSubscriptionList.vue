@@ -16,7 +16,7 @@
             @click="handleBatchUpdateSubscribeStatus"
             v-if="!isAdmin && !isCounselor"
           >
-            是否同意征订
+            同意征订
           </a-button>
           <a-button
             type="primary"
