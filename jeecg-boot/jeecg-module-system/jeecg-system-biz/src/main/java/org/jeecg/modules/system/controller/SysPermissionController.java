@@ -253,12 +253,23 @@ public class SysPermissionController {
 			// 代码逻辑说明: 自定义首页地址 LOWCOD-1578
 			String version = request.getHeader(CommonConstant.VERSION);
 			SysRoleIndex defIndexCfg = sysUserService.getDynamicIndexByUserRole(loginUser.getUsername(), version);
-			if (defIndexCfg == null) {
-				defIndexCfg = sysRoleIndexService.initDefaultIndex();
+			if (defIndexCfg == null || oConvertUtils.isEmpty(defIndexCfg.getUrl())) {
+				SysPermission firstMenu = metaList.stream()
+					.filter(p -> CommonConstant.MENU_TYPE_0.equals(p.getMenuType())
+							&& oConvertUtils.isNotEmpty(p.getUrl())
+							&& !"/online".equals(p.getUrl()))
+					.findFirst().orElse(null);
+				if (firstMenu != null) {
+					defIndexCfg = new SysRoleIndex();
+					defIndexCfg.setUrl(firstMenu.getUrl());
+					defIndexCfg.setComponent(firstMenu.getComponent());
+					defIndexCfg.setRoute(firstMenu.isRoute());
+				}
 			}
 
 			// 如果没有授权角色首页，则自动添加首页路由
-			if (!PermissionDataUtil.hasIndexPage(metaList, defIndexCfg)) {
+			if (defIndexCfg != null && oConvertUtils.isNotEmpty(defIndexCfg.getUrl())) {
+				if (!PermissionDataUtil.hasIndexPage(metaList, defIndexCfg)) {
 				LambdaQueryWrapper<SysPermission> indexQueryWrapper = new LambdaQueryWrapper<>();
 				indexQueryWrapper.eq(SysPermission::getUrl, defIndexCfg.getUrl());
 				SysPermission indexMenu = sysPermissionService.getOne(indexQueryWrapper);
@@ -279,6 +290,7 @@ public class SysPermissionController {
 					indexMenu.setIcon("ant-design:home");
 				}
 				metaList.add(0, indexMenu);
+			}
 			}
 
 /* TODO 注： 这段代码的主要作用是：把首页菜单的组件替换成角色菜单的组件，由于现在的逻辑如果角色菜单不存在则自动插入一条，所以这段代码暂时不需要

@@ -160,6 +160,23 @@ public class LoginController {
 					homePath = SymbolConstant.SINGLE_SLASH + homePath;
 				}
 				sysUser.setHomePath(homePath);
+			} else if (oConvertUtils.isNotEmpty(vue3Version)) {
+				// 无专属首页配置时，从用户菜单中取第一个作为首页
+				List<SysPermission> userMenus = sysPermissionService.queryByUser(sysUser.getId());
+				if (userMenus != null && !userMenus.isEmpty()) {
+					SysPermission firstMenu = userMenus.stream()
+						.filter(p -> CommonConstant.MENU_TYPE_0.equals(p.getMenuType())
+								&& oConvertUtils.isNotEmpty(p.getUrl())
+								&& !"/online".equals(p.getUrl()))
+						.findFirst().orElse(null);
+					if (firstMenu != null) {
+						String homePath = firstMenu.getUrl();
+						if (!homePath.startsWith(SymbolConstant.SINGLE_SLASH)) {
+							homePath = SymbolConstant.SINGLE_SLASH + homePath;
+						}
+						sysUser.setHomePath(homePath);
+					}
+				}
 			}
 			log.debug("2 获取用户信息耗时 (首页面配置)" + (System.currentTimeMillis() - start) + "毫秒");
 

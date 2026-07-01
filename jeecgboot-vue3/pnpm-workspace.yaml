@@ -1,0 +1,6 @@
+allowBuilds:
+  '@scarf/scarf': true
+  core-js: true
+  esbuild: true
+  less: true
+  vue-demi: true

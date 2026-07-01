@@ -158,8 +158,8 @@ export const searchFormSchema: FormSchema[] = [
     ifShow: ({ values }) => !!values.majorName,
   },
   {
-    label: '教材',
-    field: 'textbookName',
+    label: 'ISBN',
+    field: 'isbn',
     component: 'Input',
     colProps: { span: 8 },
   },

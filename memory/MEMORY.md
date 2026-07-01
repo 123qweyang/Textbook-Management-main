@@ -1,0 +1,4 @@
+- [硬件配置](hardware-config.md) — i7-14650HX / RTX 5060 / 32GB DDR5 / 2TB SSD
+- [开发环境配置](dev-environment-config.md) — JDK 17 / MySQL 8.0.46 / Redis 3.0 / Node.js
+- [辅导员用户管理修复](counselor-user-management-fix.md) — 用户管理页面无数据问题的根因与修复
+- [征订表权限修复](subscription-permission-fix.md) — 为学生/辅导员角色添加征订表权限

@@ -151,7 +151,7 @@ spring:
         master:
           url: jdbc:mysql://127.0.0.1:3306/jeecg-boot?characterEncoding=UTF-8&useUnicode=true&useSSL=false&tinyInt1isBit=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
           username: root
-          password: root
+          password: 123456
           driver-class-name: com.mysql.cj.jdbc.Driver
           # 多数据源配置
           #multi-datasource1:
@@ -165,7 +165,7 @@ spring:
       database: 0
       host: 127.0.0.1
       port: 6379
-      password:
+      password: 111111
 #mybatis plus 设置
 mybatis-plus:
   mapper-locations: classpath*:org/jeecg/**/xml/*Mapper.xml
@@ -314,7 +314,7 @@ jeecg:
     secret-key: ??
 #cas单点登录
 cas:
-  prefixUrl: http://cas.example.org:8443/cas
+  prefixUrl: http://authserver.zbu.edu.cn/authserver
 #Mybatis输出sql日志
 logging:
   level:

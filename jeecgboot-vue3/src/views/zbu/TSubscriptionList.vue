@@ -113,13 +113,12 @@ const { createMessage } = useMessage();
 
 const getSubscribeStatusText = (status: string) => {
   if (status === '1') return '已征订';
-  if (status === '2') return '未征订';
   return '未征订';
 };
 
 const normalizeSubscribeStatus = (status: string | undefined) => {
   if (!status) return '0';
-  if (status === '1' || status === '2') return status;
+  if (status === '1') return status;
   if (status === '未设置' || status === '未征订' || status === '' || status === '0') return '0';
   return '0';
 };
@@ -350,6 +349,9 @@ const handleBatchUpdateSubscribeStatus = async () => {
     const tableInstance = tableContext[2];
     const currentParams = tableInstance?.params || queryParam;
 
+    // 保存当前选中行（fetchTableData 会清空 selectedRowKeys）
+    const savedKeys = [...selectedRowKeys.value];
+
     // 1. 获取筛选后的数据
     const tableData = await fetchTableData(currentParams);
 
@@ -365,13 +367,13 @@ const handleBatchUpdateSubscribeStatus = async () => {
       subscriptionIds = validRecords.map(item => item.id).filter(Boolean);
     } else {
       // 管理员/辅导员端：筛选选中的未征订记录
-      if (selectedRowKeys.value.length === 0) {
+      if (savedKeys.length === 0) {
         createMessage.info("请先选中要修改的记录！");
         return;
       }
       const validRecords = tableData.records.filter(item => {
         const isUnSubscribed = item.subscribeStatus !== '1' && item.subscribeStatus !== '已征订' && item.subscribeStatus !== '已确认';
-        const isSelected = selectedRowKeys.value.includes(item.id);
+        const isSelected = savedKeys.includes(item.id);
         return isUnSubscribed && isSelected;
       });
       subscriptionIds = validRecords.map(item => item.id).filter(Boolean);

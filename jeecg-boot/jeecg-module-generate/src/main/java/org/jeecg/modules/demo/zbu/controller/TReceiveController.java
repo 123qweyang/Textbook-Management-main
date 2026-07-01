@@ -52,6 +52,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import io.swagger.v3.oas.annotations.Operation;
 import org.jeecg.common.aspect.annotation.AutoLog;
 import org.apache.shiro.authz.annotation.RequiresPermissions;
+import org.jeecg.modules.demo.zbu.controller.StudentAllBillSummaryController;
 
 /**
  * @Description: 领取表
@@ -90,6 +91,8 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 	private JdbcTemplate jdbcTemplate;
 	@Autowired
 	private ITCollegeService tCollegeService;
+	@Autowired
+	private StudentAllBillSummaryController studentAllBillSummaryController;
 	@Value("${jeecg.path.upload}")
 	private String uploadPath;
 
@@ -732,6 +735,8 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 
 					if ("0".equals(receiveStatus) && existingBill != null) {
 						boolean deleteSuccess = studentBillService.removeById(existingBill.getId());
+				// Update summary after bill deletion
+				studentAllBillSummaryController.incrementSummary(existingBill, true);
 						if (deleteSuccess) {
 							billDeleteCount++;
 							log.info("【删除账单成功】领取记录ID={} → 账单（学号={}，教材={}）已删除",
@@ -988,27 +993,8 @@ public class TReceiveController extends JeecgController<TReceive, ITReceiveServi
 				log.info("学生模式，查询到{}条领取记录", receiveList.size());
 			}
 
-		// 填充征订学年和原始学期，用于筛选
-			for (Map<String, Object> record : receiveList) {
-				Object subIdObj = record.get("subscription_id");
-				if (subIdObj != null) {
-					try {
-						TSubscription sub = tSubscriptionService.getById(subIdObj.toString());
-						if (sub != null) {
-							record.put("subscriptionYear", sub.getSubscriptionYear());
-				String sem = sub.getSubscriptionSemester();
-					if (sem != null) {
-						String s = sem.trim();
-						if ("1".equals(s) || "一".equals(s) || "第一学期".equals(s)) sem = "1";
-						else if ("2".equals(s) || "二".equals(s) || "第二学期".equals(s)) sem = "2";
-					}
-					record.put("subscriptionSemester", sem);
-						}
-					} catch (Exception e) {
-						log.warn("填充征订学年学期失败：{}", e.getMessage());
-					}
-				}
-			}
+		// 征订学年和学期已由视图提供，用于筛选
+
 			// 征订学年和学期筛选（基于原始字典码）
 			String reqYear = request.getParameter("subscriptionYear");
 			String reqSemester = request.getParameter("subscriptionSemester");

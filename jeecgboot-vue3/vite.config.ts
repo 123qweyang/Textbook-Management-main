@@ -137,6 +137,24 @@ export default ({ command, mode }: ConfigEnv): UserConfig => {
     // 预加载构建配置（首屏性能)
     plugins: createVitePlugins(viteEnv, isBuild, isQiankunMicro),
     optimizeDeps: {
+      include: [
+        'vue',
+        'vue-router',
+        'vue-i18n',
+        'pinia',
+        'axios',
+        'dayjs',
+        'ant-design-vue',
+        '@ant-design/icons-vue',
+        'lodash-es',
+        'vxe-table',
+        'xe-utils',
+        'echarts',
+        'cropperjs',
+        'codemirror',
+        'tinymce',
+        'uuid',
+      ],
       esbuildOptions: {
         target: 'es2020',
       },

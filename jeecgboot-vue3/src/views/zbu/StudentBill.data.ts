@@ -73,7 +73,7 @@ export const columns: BasicColumn[] = [
     dataIndex: 'subscribeStatus',
     customRender: ({ text }) => {
       if (text === '1') return '已征订';
-      if (text === '2') return '未征订';
+      if (text === '0') return '未征订';
       return text || '未征订';
     }
   },

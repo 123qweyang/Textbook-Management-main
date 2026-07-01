@@ -168,7 +168,7 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 		// 1. 保存征订表数据
 		tSubscriptionService.save(tSubscription);
 
-		return Result.OK("添加成功！");
+		return Result.OK("�༭�ɹ�����ɾ����ȡ��¼���˵�");
 	}
 
 	/**
@@ -250,6 +250,29 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 					log.info("编辑征订状态为已征订，创建领取记录成功，征订ID：{}", subscriptionId);
 					return Result.OK("编辑成功！并已创建领取记录，同步更新个人账单");
 				}
+			}
+
+			// Cascade delete: when subscribeStatus changes from 1 to 0, delete receive and bill
+			if ("1".equals(oldStatus) && !"1".equals(newStatus)) {
+				QueryWrapper<TReceive> receiveDelWrapper = new QueryWrapper<>();
+				receiveDelWrapper.eq("subscription_id", subscriptionId);
+				tReceiveService.remove(receiveDelWrapper);
+				if (studentNo != null && textbookName != null) {
+					QueryWrapper<StudentBill> billDelWrapper = new QueryWrapper<>();
+					billDelWrapper.eq("student_id", studentNo)
+							.eq("subscription_year", oldSubscription.getSubscriptionYear())
+							.eq("subscription_semester", oldSubscription.getSubscriptionSemester())
+							.eq("textbook_name", textbookName);
+					// Get bill data for summary update before deletion
+					StudentBill billToDelete = studentBillService.getOne(billDelWrapper);
+					studentBillService.remove(billDelWrapper);
+					// Update summary table after bill deletion
+					if (billToDelete != null) {
+						studentAllBillSummaryController.incrementSummary(billToDelete, true);
+					}
+				}
+				log.info("Status changed to unsubscribed, deleted receive and bill. subId: {}", subscriptionId);
+								return Result.OK("编辑成功！已删除领取记录和账单");
 			}
 
 			return Result.OK("编辑成功！已同步更新个人账单");
@@ -1117,7 +1140,6 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 					studentNo, subscriptionId, receive.getId());
 
 			return Result.OK("同意征订成功！已创建领取记录（个人账单将在领取教材后生成）");
-
 		} catch (Exception e) {
 			log.error("同意征订失败", e);
 			return Result.error("同意征订失败：" + e.getMessage());

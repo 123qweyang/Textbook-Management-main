@@ -235,10 +235,10 @@ const fetchTableData = async (params = {}) => {
           item.studentName.toLowerCase().includes(searchKey)
         );
       }
-      if (params.textbookName) {
-        const searchKey = params.textbookName.trim().toLowerCase();
+      if (params.isbn) {
+        const searchKey = params.isbn.trim().toLowerCase();
         filteredRecords = filteredRecords.filter(item =>
-          item.textbookName.toLowerCase().includes(searchKey)
+          (item.isbn || '').toLowerCase().includes(searchKey)
         );
       }
       if (params.receiveStatus) {
@@ -286,12 +286,10 @@ const fetchTableData = async (params = {}) => {
             console.log('【领取表筛选】比较状态：', statusValue, typeof statusValue, 'vs', itemStatus);
 
             // 处理后端返回的文本状态值
-            if (itemStatus === '未领取' || itemStatus === '未领') {
-              // 如果记录状态是未领取，检查参数是否匹配
-              return statusValue === '0' || statusValue === '未领' || statusValue === '未领取';
-            } else if (itemStatus === '已领取' || itemStatus === '已领') {
-              // 如果记录状态是已领取，检查参数是否匹配
-              return statusValue === '1' || statusValue === '已领' || statusValue === '已领取';
+            if (itemStatus === '未领取') {
+              return statusValue === '0' || statusValue === '未领取';
+            } else if (itemStatus === '已领取') {
+              return statusValue === '1' || statusValue === '已领取';
             } else {
               // 其他情况，直接比较
               return statusValue === itemStatus;
@@ -306,88 +304,26 @@ const fetchTableData = async (params = {}) => {
         console.log('【领取表筛选】过滤后记录数：', filteredRecords.length);
         console.log('【领取表筛选】过滤后记录状态：', filteredRecords.map(item => ({id: item.id, receiveStatus: item.receiveStatus, receiveStatus_dictText: item.receiveStatus_dictText})));
       }
-      // 学院筛选（通过学院查找专业，再查找学生ID来过滤）
-      if (params.collegeName || params.majorName || params.className) {
-        // 收集所有需要匹配的学生ID
-        let targetStudentIds = null;
-
-        // 优先按班级筛选
-        if (params.className) {
-          try {
-            const classRes = await defHttp.get({ url: '/zbu/tClass/list', params: { pageSize: 999, pageNo: 1, className: params.className } });
-            const classRecords = classRes.records || [];
-            const classIds = classRecords.map((c: any) => c.id);
-            if (classIds.length > 0) {
-              const stuRes = await defHttp.get({ url: '/zbu/tStudent/list', params: { pageSize: 9999, pageNo: 1 } });
-              const stuRecords = stuRes.records || [];
-              targetStudentIds = stuRecords
-                .filter((s: any) => classIds.includes(s.classId))
-                .map((s: any) => s.id);
-            } else {
-              targetStudentIds = [];
-            }
-          } catch (e) {
-            console.error('班级筛选失败：', e);
-          }
-        }
-        // 其次按专业筛选
-        else if (params.majorName) {
-          try {
-            const majorRes = await defHttp.get({ url: '/zbu/tMajor/list', params: { pageSize: 999, pageNo: 1, majorName: params.majorName } });
-            const majorRecords = majorRes.records || [];
-            const majorIds = majorRecords.map((m: any) => m.id);
-            if (majorIds.length > 0) {
-              const stuRes = await defHttp.get({ url: '/zbu/tStudent/list', params: { pageSize: 9999, pageNo: 1 } });
-              const stuRecords = stuRes.records || [];
-              targetStudentIds = stuRecords
-                .filter((s: any) => majorIds.includes(s.majorId))
-                .map((s: any) => s.id);
-            } else {
-              targetStudentIds = [];
-            }
-          } catch (e) {
-            console.error('专业筛选失败：', e);
-          }
-        }
-        // 只按学院筛选
-        else if (params.collegeName) {
-          try {
-            const collegeRes = await defHttp.get({ url: '/zbu/tCollege/list', params: { pageSize: 999, pageNo: 1, collegeName: params.collegeName } });
-            const collegeRecords = collegeRes.records || [];
-            const collegeIds = collegeRecords.map((c: any) => c.id);
-            if (collegeIds.length > 0) {
-              const majorRes = await defHttp.get({ url: '/zbu/tMajor/list', params: { pageSize: 9999, pageNo: 1 } });
-              const majorRecords = majorRes.records || [];
-              const majorIdsInCollege = majorRecords
-                .filter((m: any) => collegeIds.includes(m.collegeId))
-                .map((m: any) => m.id);
-              if (majorIdsInCollege.length > 0) {
-                const stuRes = await defHttp.get({ url: '/zbu/tStudent/list', params: { pageSize: 9999, pageNo: 1 } });
-                const stuRecords = stuRes.records || [];
-                targetStudentIds = stuRecords
-                  .filter((s: any) => majorIdsInCollege.includes(s.majorId))
-                  .map((s: any) => s.id);
-              } else {
-                targetStudentIds = [];
-              }
-            } else {
-              targetStudentIds = [];
-            }
-          } catch (e) {
-            console.error('学院筛选失败：', e);
-          }
-        }
-
-        // 应用学生ID过滤
-        if (targetStudentIds !== null) {
-          if (targetStudentIds.length === 0) {
-            filteredRecords = [];
-          } else {
-            filteredRecords = filteredRecords.filter(item =>
-              targetStudentIds.includes(item.receiveOperator || item.studentId)
-            );
-          }
-        }
+      // 学院筛选
+      if (params.collegeName) {
+        const key = params.collegeName.trim().toLowerCase();
+        filteredRecords = filteredRecords.filter(item =>
+          (item.collegeName || '').toLowerCase().includes(key)
+        );
+      }
+      // 专业筛选
+      if (params.majorName) {
+        const key = params.majorName.trim().toLowerCase();
+        filteredRecords = filteredRecords.filter(item =>
+          (item.majorName || '').toLowerCase().includes(key)
+        );
+      }
+      // 班级筛选
+      if (params.className) {
+        const key = params.className.trim().toLowerCase();
+        filteredRecords = filteredRecords.filter(item =>
+          (item.className || '').toLowerCase().includes(key)
+        );
       }
     }
 

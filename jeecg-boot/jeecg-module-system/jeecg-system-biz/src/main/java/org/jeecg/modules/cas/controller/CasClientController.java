@@ -28,14 +28,6 @@ import com.alibaba.fastjson.JSONObject;
 
 import lombok.extern.slf4j.Slf4j;
 
-/**
- * <p>
- * CAS单点登录客户端登录认证
- * </p>
- *
- * @Author zhoujf
- * @since 2018-12-20
- */
 @Slf4j
 @RestController
 @RequestMapping("/sys/cas/client")
@@ -44,68 +36,87 @@ public class CasClientController {
 	@Autowired
 	private ISysUserService sysUserService;
 	@Autowired
-    private ISysDepartService sysDepartService;
+	private ISysDepartService sysDepartService;
 	@Autowired
-    private RedisUtil redisUtil;
-	
+	private RedisUtil redisUtil;
+
 	@Value("${cas.prefixUrl}")
-    private String prefixUrl;
-	
-	
+	private String prefixUrl;
+
+
 	@GetMapping("/validateLogin")
 	public Object validateLogin(@RequestParam(name="ticket") String ticket,
 								@RequestParam(name="service") String service,
 								HttpServletRequest request,
 								HttpServletResponse response) throws Exception {
 		Result<JSONObject> result = new Result<JSONObject>();
-		log.info("Rest api login.");
+		log.info("CAS validateLogin, ticket={}, service={}", ticket, service);
 		try {
-			String validateUrl = prefixUrl+"/p3/serviceValidate";
+			String validateUrl = prefixUrl + "/p3/serviceValidate";
+			log.info("Calling CAS: {}", validateUrl);
+
 			String res = CasServiceUtil.getStValidate(validateUrl, ticket, service);
-			log.info("res."+res);
-			final String error = XmlUtils.getTextForElement(res, "authenticationFailure");
-			if(StringUtils.isNotEmpty(error)) {
-				throw new Exception(error);
+			log.info("CAS raw response: {}", res);
+
+			if (res == null || res.isEmpty()) {
+				throw new Exception("CAS server returned empty response. "
+						+ "Request URL: " + validateUrl
+						+ "?service=" + service + "&ticket=" + ticket);
 			}
+
+			final String error = XmlUtils.getTextForElement(res, "authenticationFailure");
+			if (StringUtils.isNotEmpty(error)) {
+				throw new Exception("CAS auth failure: " + error);
+			}
+
 			final String principal = XmlUtils.getTextForElement(res, "user");
 			if (StringUtils.isEmpty(principal)) {
-	            throw new Exception("No principal was found in the response from the CAS server.");
-	        }
-			log.info("-------token----username---"+principal);
-		    //1. 校验用户是否有效
-	  		SysUser sysUser = sysUserService.getUserByName(principal);
-	  		result = sysUserService.checkUserIsEffective(sysUser);
-	  		if(!result.isSuccess()) {
-	  			return result;
-	  		}
-	 		String token = JwtUtil.sign(sysUser.getUsername(), sysUser.getPassword(), CommonConstant.CLIENT_TYPE_PC);
-	 		// 设置超时时间
-	 		redisUtil.set(CommonConstant.PREFIX_USER_TOKEN + token, token);
-	 		redisUtil.expire(CommonConstant.PREFIX_USER_TOKEN + token, JwtUtil.EXPIRE_TIME*2 / 1000);
-
-	 		//获取用户部门信息
-			JSONObject obj = new JSONObject();
-			List<SysDepart> departs = sysDepartService.queryUserDeparts(sysUser.getId());
-			obj.put("departs", departs);
-			if (departs == null || departs.size() == 0) {
-				obj.put("multi_depart", 0);
-			} else if (departs.size() == 1) {
-				sysUserService.updateUserDepart(principal, departs.get(0).getOrgCode(),null);
-				obj.put("multi_depart", 1);
-			} else {
-				obj.put("multi_depart", 2);
+				log.error("No 'user' element in CAS response. Raw: {}", res);
+				throw new Exception("CAS returned no user element. Raw: "
+						+ res.substring(0, Math.min(res.length(), 500)));
 			}
-			obj.put("token", token);
-			obj.put("userInfo", sysUser);
-			result.setResult(obj);
-			result.success("登录成功");
-	  		
+
+			log.info("CAS principal: {}", principal);
+			return doLogin(principal, result);
 		} catch (Exception e) {
-			//e.printStackTrace();
+			log.error("CAS validateLogin failed", e);
 			result.error500(e.getMessage());
 		}
 		return new HttpEntity<>(result);
 	}
 
-	
+
+	private HttpEntity<Result<JSONObject>> doLogin(String username, Result<JSONObject> result) {
+		SysUser sysUser = sysUserService.getUserByName(username);
+		if (sysUser == null) {
+			result.error500("User not found: " + username);
+			return new HttpEntity<>(result);
+		}
+		result = sysUserService.checkUserIsEffective(sysUser);
+		if (!result.isSuccess()) {
+			return new HttpEntity<>(result);
+		}
+
+		String token = JwtUtil.sign(sysUser.getUsername(), sysUser.getPassword(), CommonConstant.CLIENT_TYPE_PC);
+		redisUtil.set(CommonConstant.PREFIX_USER_TOKEN + token, token);
+		redisUtil.expire(CommonConstant.PREFIX_USER_TOKEN + token, JwtUtil.EXPIRE_TIME * 2 / 1000);
+
+		JSONObject obj = new JSONObject();
+		List<SysDepart> departs = sysDepartService.queryUserDeparts(sysUser.getId());
+		obj.put("departs", departs);
+		if (departs == null || departs.size() == 0) {
+			obj.put("multi_depart", 0);
+		} else if (departs.size() == 1) {
+			sysUserService.updateUserDepart(username, departs.get(0).getOrgCode(), null);
+			obj.put("multi_depart", 1);
+		} else {
+			obj.put("multi_depart", 2);
+		}
+		obj.put("token", token);
+		obj.put("userInfo", sysUser);
+		result.setResult(obj);
+		result.success("Login success");
+		return new HttpEntity<>(result);
+	}
+
 }

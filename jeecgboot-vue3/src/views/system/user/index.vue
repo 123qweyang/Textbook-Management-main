@@ -187,37 +187,34 @@ const wrappedApi = async (params) => {
     console.log('filtering data with studentUserIds:', counselorStudentUserIds.value);
     console.log('counselorStudentUserIds.length:', counselorStudentUserIds.value.length);
 
-    // 获取所有数据（不分页）
-    const allRes = await listNoCareTenant({ pageNo: 1, pageSize: 1000 });
-    console.log('all data response:', allRes);
-
     if (counselorStudentUserIds.value.length > 0) {
-      const allFilteredRecords = allRes.records.filter((item) => counselorStudentUserIds.value.includes(item.id));
-      console.log('all filtered records length:', allFilteredRecords.length);
+      // 对ID排序确保跨页一致性
+      const sortedIds = [...counselorStudentUserIds.value].sort();
+      const total = sortedIds.length;
 
-      // 手动进行分页
+      // 按当前页切片，将对应页的学生ID传给后端精确查询
       const pageNo = params.pageNo || 1;
       const pageSize = params.pageSize || 10;
       const start = (pageNo - 1) * pageSize;
       const end = start + pageSize;
-      const paginatedRecords = allFilteredRecords.slice(start, end);
+      const pageIds = sortedIds.slice(start, end);
 
-      console.log('paginated records length:', paginatedRecords.length);
-      return {
-        ...allRes,
-        records: paginatedRecords,
-        total: allFilteredRecords.length // 更新total为过滤后的总数量
-      };
+      console.log('counselor page:', pageNo, 'pageSize:', pageSize, 'pageIds:', pageIds.length);
+
+      if (pageIds.length === 0) {
+        return { records: [], total, current: pageNo, size: pageSize };
+      }
+
+      // 通过 code 参数精确查询当前页的学生ID，不走全量拉取
+      const res = await listNoCareTenant({ pageNo: 1, pageSize: pageIds.length, code: pageIds.join(',') });
+      console.log('counselor page result:', res.records.length, 'total:', total);
+      return { ...res, total, current: pageNo, size: pageSize };
     }
     // 如果没有学生，返回空数据
-    return {
-      ...allRes,
-      records: [],
-      total: 0 // 更新total为0
-    };
+    return { records: [], total: 0, current: 1, size: params.pageSize || 10 };
   }
 
-  // 其他情况使用原始分页数据
+  // 非辅导员：使用原始分页数据
   const res = await listNoCareTenant(params);
   console.log('original API response:', res);
   return res;

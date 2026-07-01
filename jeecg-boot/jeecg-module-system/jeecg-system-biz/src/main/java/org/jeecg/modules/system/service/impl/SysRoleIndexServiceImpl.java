@@ -29,16 +29,13 @@ public class SysRoleIndexServiceImpl extends ServiceImpl<SysRoleIndexMapper, Sys
     private RedisUtil redisUtil;
 
     @Override
-    @Cacheable(cacheNames = DefIndexConst.CACHE_KEY, key = "'" + DefIndexConst.DEF_INDEX_ALL + "'")
+    @Cacheable(cacheNames = DefIndexConst.CACHE_KEY, key = "'" + DefIndexConst.DEF_INDEX_ALL + "'", unless = "#result == null")
     public SysRoleIndex queryDefaultIndex() {
         LambdaQueryWrapper<SysRoleIndex> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(SysRoleIndex::getRoleCode, DefIndexConst.DEF_INDEX_ALL);
         queryWrapper.eq(SysRoleIndex::getStatus, CommonConstant.STATUS_1);
         SysRoleIndex entity = super.getOne(queryWrapper);
-        // 保证不为空
-        if (entity == null) {
-            entity = this.initDefaultIndex();
-        }
+        // 不再硬编码兜底，返回 null 让调用方自行决定首页
         return entity;
     }
 
