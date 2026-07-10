@@ -51,6 +51,10 @@ public class CasClientController {
 								HttpServletResponse response) throws Exception {
 		Result<JSONObject> result = new Result<JSONObject>();
 		log.info("CAS validateLogin, ticket={}, service={}", ticket, service);
+		if (ticket != null && ticket.length() > 512) {
+			result.error500("Invalid ticket length");
+			return new HttpEntity<>(result);
+		}
 		try {
 			String validateUrl = prefixUrl + "/p3/serviceValidate";
 			log.info("Calling CAS: {}", validateUrl);

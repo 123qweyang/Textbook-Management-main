@@ -141,8 +141,7 @@ public class ShiroConfig {
         filterChainDefinitionMap.put("/sys/annountCement/show/**", "anon");
 
         //积木报表排除
-        filterChainDefinitionMap.put("/jmreport/**", "anon");
-        filterChainDefinitionMap.put("/**/*.js.map", "anon");
+                filterChainDefinitionMap.put("/**/*.js.map", "anon");
         filterChainDefinitionMap.put("/**/*.css.map", "anon");
         
         //积木BI大屏和仪表盘排除

@@ -41,8 +41,8 @@ import org.jeecg.common.util.oConvertUtils;
 @Slf4j
 public class JwtUtil {
 
-	/**PC端，Token有效期为7天（Token在reids中缓存时间为两倍）*/
-	public static final long EXPIRE_TIME = (7 * 12) * 60 * 60 * 1000L;
+	/**PC端，Token有效期为2小时（Token在redis中缓存时间为两倍）*/
+	public static final long EXPIRE_TIME = 2 * 60 * 60 * 1000L;
 	/**APP端，Token有效期为30天（Token在reids中缓存时间为两倍）*/
 	public static final long APP_EXPIRE_TIME = (30 * 12) * 60 * 60 * 1000L;
 	static final String WELL_NUMBER = SymbolConstant.WELL_NUMBER + SymbolConstant.LEFT_CURLY_BRACKET;
