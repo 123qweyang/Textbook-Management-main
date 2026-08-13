@@ -168,7 +168,7 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 		// 1. 保存征订表数据
 		tSubscriptionService.save(tSubscription);
 
-		return Result.OK("�༭�ɹ�����ɾ����ȡ��¼���˵�");
+		return Result.OK("添加成功！");
 	}
 
 	/**
