@@ -40,6 +40,7 @@ import org.jeecgframework.poi.excel.view.JeecgEntityExcelView;
 import org.jeecg.common.system.base.controller.JeecgController;
 import org.jeecgframework.poi.excel.view.JeecgMapExcelView;
 import org.jeecg.modules.demo.zbu.vo.ImportErrorExportUtil;
+import org.jeecg.modules.demo.zbu.util.SemesterUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.BeanPropertyRowMapper;
@@ -576,6 +577,9 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 					// 校验学期
 					if (oConvertUtils.isEmpty(sub.getSubscriptionSemester())) {
 						sub.setSubscriptionSemester("1");
+					} else {
+						// 统一学期格式为字典码（兼容导入Excel中的"1/一/第一学期"等写法）
+						sub.setSubscriptionSemester(SemesterUtil.normalizeCode(sub.getSubscriptionSemester()));
 					}
 
 					// 补默认值

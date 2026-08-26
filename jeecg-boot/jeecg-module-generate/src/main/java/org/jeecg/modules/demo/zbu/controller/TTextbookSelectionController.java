@@ -28,6 +28,7 @@ import org.jeecg.common.system.vo.LoginUser;
 import org.jeecgframework.poi.excel.view.JeecgEntityExcelView;
 import org.jeecg.common.system.base.controller.JeecgController;
 import org.jeecg.modules.demo.zbu.vo.ImportErrorExportUtil;
+import org.jeecg.modules.demo.zbu.util.SemesterUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -853,10 +854,8 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 						er.createCell(2).setCellValue(str(row.get("textbookName")));
 						er.createCell(3).setCellValue(str(row.get("isbn")));
 					er.createCell(4).setCellValue(str(row.get("schoolYear")));
-					// 学期和生效状态归一化
-					String sem = str(row.get("semester"));
-					if ("1".equals(sem) || "一".equals(sem) || "第一学期".equals(sem)) sem = "第一学期";
-					else if ("2".equals(sem) || "二".equals(sem) || "第二学期".equals(sem)) sem = "第二学期";
+					// 学期归一化为中文标签（第一学期/第二学期）
+				String sem = SemesterUtil.toLabel(str(row.get("semester")));
 					er.createCell(5).setCellValue(sem);
 					String selStatus = str(row.get("selectionStatus"));
 					if ("1".equals(selStatus) || "启用".equals(selStatus)) selStatus = "生效";
@@ -988,13 +987,8 @@ public class TTextbookSelectionController extends JeecgController<TTextbookSelec
 				if (oConvertUtils.isEmpty(selection.getSemester())) {
 						selection.setSemester("1"); // 默认第一学期
 					} else {
-						// 统一学期格式为字典码（兼容导入Excel中的文本写法）
-						String semester = selection.getSemester().trim();
-						if ("第一学期".equals(semester) || "一".equals(semester)) {
-							selection.setSemester("1");
-						} else if ("第二学期".equals(semester) || "二".equals(semester)) {
-							selection.setSemester("2");
-						}
+						// 统一学期格式为字典码（兼容导入Excel中的"1/一/第一学期"等文本写法）
+						selection.setSemester(SemesterUtil.normalizeCode(selection.getSemester()));
 					}
 					if (oConvertUtils.isEmpty(selection.getSelectionStatus())) {
 						selection.setSelectionStatus("1"); // 默认生效

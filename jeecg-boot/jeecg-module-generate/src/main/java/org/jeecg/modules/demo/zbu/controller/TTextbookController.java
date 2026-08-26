@@ -32,6 +32,7 @@ import org.jeecgframework.poi.excel.entity.ImportParams;
 import org.jeecgframework.poi.excel.view.JeecgEntityExcelView;
 import org.jeecg.common.system.base.controller.JeecgController;
 import org.jeecg.modules.demo.zbu.vo.ImportErrorExportUtil;
+import org.jeecg.modules.demo.zbu.util.SemesterUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
@@ -374,11 +375,13 @@ public class TTextbookController extends JeecgController<TTextbook, ITTextbookSe
 					continue;
 				}
 				if (oConvertUtils.isEmpty(textbook.getEnableSemester())) {
-					failMsgList.add("第" + rowNum + "行：启用学期为空（ISBN：" + textbook.getIsbn() + "），跳过导入");
-					continue;
-				}
+				failMsgList.add("第" + rowNum + "行：启用学期为空（ISBN：" + textbook.getIsbn() + "），跳过导入");
+				continue;
+			}
+			// 统一学期格式为字典码（兼容导入Excel中的"1/一/第一学期"等写法）
+			textbook.setEnableSemester(SemesterUtil.normalizeCode(textbook.getEnableSemester()));
 
-				QueryWrapper<TTextbook> queryWrapper = new QueryWrapper<>();
+			QueryWrapper<TTextbook> queryWrapper = new QueryWrapper<>();
 				queryWrapper.eq("isbn", textbook.getIsbn());
 				queryWrapper.eq("enable_year", textbook.getEnableYear());
 				queryWrapper.eq("enable_semester", textbook.getEnableSemester());
@@ -456,11 +459,13 @@ public class TTextbookController extends JeecgController<TTextbook, ITTextbookSe
 						continue;
 					}
 					if (oConvertUtils.isEmpty(tb.getEnableSemester())) {
-						failMsgList.add("第" + rowNum + "行：启用学期为空（ISBN：" + tb.getIsbn() + "），跳过更新");
-						continue;
-					}
+					failMsgList.add("第" + rowNum + "行：启用学期为空（ISBN：" + tb.getIsbn() + "），跳过更新");
+					continue;
+				}
+				// 统一学期格式为字典码（兼容导入Excel中的"1/一/第一学期"等写法）
+				tb.setEnableSemester(SemesterUtil.normalizeCode(tb.getEnableSemester()));
 
-					// 按ISBN+启用学年+启用学期查找已有记录
+				// 按ISBN+启用学年+启用学期查找已有记录
 					QueryWrapper<TTextbook> queryWrapper = new QueryWrapper<>();
 					queryWrapper.eq("isbn", tb.getIsbn());
 					queryWrapper.eq("enable_year", tb.getEnableYear());

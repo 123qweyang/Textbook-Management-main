@@ -1,0 +1,444 @@
+﻿<template>
+  <div>
+<#assign list_need_category=false>
+<#assign list_need_pca=false>
+<#assign bpm_flag=false>
+<#assign list_has_popup_dict=false>
+<#assign buttonList=[]>
+<#if tableVo.extendParams?? && tableVo.extendParams.cgButtonList??>
+  <#assign buttonList = tableVo.extendParams.cgButtonList?filter(btn -> btn??)>
+</#if>
+<#-- 开始循环 -->
+<#list columns as po>
+<#if po.fieldDbName=='bpm_status'>
+  <#assign bpm_flag=true>
+</#if>
+<#if po.classType=='cat_tree' && po.dictText?default("")?trim?length == 0>
+<#assign list_need_category=true>
+</#if>
+<#if po.classType=='pca'>
+<#assign list_need_pca=true>
+</#if>
+<#if po.classType=='popup_dict'>
+<#assign list_has_popup_dict=true>
+</#if>
+</#list>
+<#-- 结束循环 -->
+    <!--引用表格-->
+   <BasicTable @register="registerTable" :rowSelection="rowSelection">
+     <!--插槽:table标题-->
+      <template #tableTitle>
+          <a-button type="primary" v-auth="'${entityPackage}:${tableName}:add'"  @click="handleAdd" preIcon="ant-design:plus-outlined"> 新增</a-button>
+          <a-button  type="primary" v-auth="'${entityPackage}:${tableName}:exportXls'"  preIcon="ant-design:export-outlined" @click="onExportXls"> 导出</a-button>
+          <j-upload-button  type="primary" v-auth="'${entityPackage}:${tableName}:importExcel'"  preIcon="ant-design:import-outlined" @click="onImportXls">导入</j-upload-button>
+     <#if buttonList?size gt 0>
+      <#list buttonList as btn>
+         <#if btn.buttonStyle == 'button'>
+           <a-button type="primary" @click="handle${btn.buttonCode?cap_first}" <#if btn.buttonIcon??> preIcon="${btn.buttonIcon}" </#if>>${btn.buttonName}</a-button>
+         </#if>
+       </#list>
+     </#if>
+          <a-dropdown v-if="selectedRowKeys.length > 0">
+              <template #overlay>
+                <a-menu>
+                  <a-menu-item key="1" @click="batchHandleDelete">
+                    <Icon icon="ant-design:delete-outlined"></Icon>
+                    删除
+                  </a-menu-item>
+                </a-menu>
+              </template>
+              <a-button v-auth="'${entityPackage}:${tableName}:deleteBatch'">批量操作
+                <Icon icon="mdi:chevron-down"></Icon>
+              </a-button>
+        </a-dropdown>
+        <#-- update-begin---author:chenrui ---date:20231228  for：[QQYUN-7527]vue3代码生成默认带上高级查询---------- -->
+        <!-- 高级查询 -->
+        <super-query :config="superQueryConfig" @search="handleSuperQuery" />
+        <#-- update-end---author:chenrui ---date:20231228  for：[QQYUN-7527]vue3代码生成默认带上高级查询---------- -->
+      </template>
+       <!--操作栏-->
+      <template #action="{ record }">
+        <TableAction :actions="getTableAction(record)" :dropDownActions="getDropDownAction(record)"/>
+      </template>
+      <!--字段回显插槽-->
+      <template v-slot:bodyCell="{ column, record, index, text }">
+      <#list columns as po>
+        <#if po.classType=='umeditor' || po.classType=='pca' || po.classType=='file'>
+        <template v-if="column.dataIndex==='${po.fieldName}'">
+        <#if po.classType=='umeditor'>
+          <!--富文本件字段回显插槽-->
+          <div v-html="text"></div>
+        </#if>
+        <#if po.classType=='pca'>
+          <!--省市区字段回显插槽-->
+          {{ getAreaTextByCode(text) }}
+        </#if>
+        <#if po.classType=='file'>
+          <!--文件字段回显插槽-->
+          <span v-if="!text" style="font-size: 12px;font-style: italic;">无文件</span>
+          <a-button v-else :ghost="true" type="primary" preIcon="ant-design:download-outlined" size="small" @click="downloadFile(text)">下载</a-button>
+        </#if>
+        </template>
+        </#if>
+      </#list>
+      </template>
+    </BasicTable>
+    <!-- 表单区域 -->
+    <${entityName}Modal @register="registerModal" @success="handleSuccess"></${entityName}Modal>
+    <#if bpm_flag==true>
+      <!-- 审批记录 -->
+      <BpmPictureModal @register="registerBpmModal" />
+     </#if>
+  </div>
+</template>
+
+<script lang="ts" name="${entityPackage}-${entityName?uncap_first}" setup>
+  import {ref, reactive, computed, unref} from 'vue';
+  import {BasicTable, useTable, TableAction} from '/@/components/Table';
+  import { useListPage } from '/@/hooks/system/useListPage'
+  import {useModal} from '/@/components/Modal';
+  import ${entityName}Modal from './components/${entityName}Modal.vue'
+  import {columns, searchFormSchema, superQuerySchema} from './${entityName}.data';
+  import {list, deleteOne, batchDelete, getImportUrl,getExportUrl} from './${entityName}.api';
+  import {downloadFile} from '/@/utils/common/renderUtils';
+  import { useUserStore } from '/@/store/modules/user';
+  import { useMessage } from '/@/hooks/web/useMessage';
+<#if list_need_pca>
+  import { getAreaTextByCode } from '/@/components/Form/src/utils/Area';
+</#if>
+  <#if list_need_category>
+  import { loadCategoryData } from '/@/api/common/api'
+  import { getAuthCache, setAuthCache } from '/@/utils/auth';
+  import { DB_DICT_DATA_KEY } from '/@/enums/cacheEnum';
+  </#if>
+<#if list_has_popup_dict>
+  import {getPopDictByCode} from "@/utils/dict";
+  import {filterMultiDictText} from "@/utils/dict/JDictSelectUtil";
+</#if>
+  import { getDateByPicker } from '/@/utils';
+  //日期个性化选择
+  const fieldPickers = reactive({
+  <#list columns as po>
+    <#if po.extendParams?exists && po.extendParams.picker?exists>
+    ${po.fieldName}: '${po.extendParams.picker}',
+    </#if>
+  </#list>
+  });
+  <#if bpm_flag==true>
+  import { startProcess } from '/@/api/common/api';
+
+  const [registerBpmModal, { openModal: bpmPicModal }] = useModal();
+  </#if>
+  const queryParam = reactive<any>({});
+  const userStore = useUserStore();
+  const { createMessage } = useMessage();
+  const checkedKeys = ref<Array<string | number>>([]);
+  //注册model
+  const [registerModal, {openModal}] = useModal();
+   //注册table数据
+  const { prefixCls,tableContext,onExportXls,onImportXls } = useListPage({
+      tableProps:{
+           title: '${tableVo.ftlDescription}',
+           api: list,
+           columns,
+           canResize:true,
+           formConfig: {
+                //labelWidth: 120,
+                schemas: searchFormSchema,
+                autoSubmitOnEnter:true,
+                showAdvancedButton:true,
+                fieldMapToNumber: [
+                   <#list columns as po>
+                   <#if po.isQuery=='Y'>
+                   <#if po.queryMode=='group'>
+                   <#-- update-begin---author:chenrui ---date:20240527  for：[TV360X-388]时间范围查询控件---------- -->
+                   <#if po.fieldDbType=='int' || po.fieldDbType=='long' || po.fieldDbType=='double' || po.fieldDbType=='BigDecimal' || po.classType=='time'>
+                   <#-- update-end---author:chenrui ---date:20240527  for：[TV360X-388]时间范围查询控件---------- -->
+                   ['${po.fieldName}', ['${po.fieldName}_begin', '${po.fieldName}_end']],
+                   </#if>
+                   </#if>
+                   </#if>
+                   </#list>
+                ],
+                fieldMapToTime: [
+                <#list columns as po>
+                <#if po.isQuery=='Y'>
+                <#if po.queryMode=='group'>
+                <#if po.classType=='date'>
+                   ['${po.fieldName}', ['${po.fieldName}_begin', '${po.fieldName}_end'], 'YYYY-MM-DD'],
+                <#elseif po.classType=='datetime'>
+                   ['${po.fieldName}', ['${po.fieldName}_begin', '${po.fieldName}_end'], 'YYYY-MM-DD HH:mm:ss'],
+                </#if>
+                </#if>
+                </#if>
+                </#list>
+                ],
+            },
+           actionColumn: {
+               width: 120,
+               fixed:'right'
+           },
+           beforeFetch: (params) => {
+              if (params && fieldPickers) {
+                  for (let key in fieldPickers) {
+                      if (params[key]) {
+                          params[key] = getDateByPicker(params[key], fieldPickers[key]);
+                      }
+                  }
+              }
+             return Object.assign(params, queryParam);
+           },
+           <#if list_has_popup_dict>
+           afterFetch: afterFetch
+           </#if>
+        },
+        exportConfig: {
+            name:"${tableVo.ftlDescription}",
+            url: getExportUrl,
+            params: queryParam,
+        },
+        importConfig: {
+            url: getImportUrl,
+            success: handleSuccess
+        },
+    })
+
+  const [registerTable, {reload},{ rowSelection, selectedRowKeys }] = tableContext
+
+<#-- update-begin---author:chenrui ---date:20231228  for：[QQYUN-7527]vue3代码生成默认带上高级查询---------- -->
+  // 高级查询配置
+  const superQueryConfig = reactive(superQuerySchema);
+
+  /**
+   * 高级查询事件
+   */
+  function handleSuperQuery(params) {
+    Object.keys(params).map((k) => {
+      queryParam[k] = params[k];
+    });
+    reload();
+  }
+<#-- update-end---author:chenrui ---date:20231228  for：[QQYUN-7527]vue3代码生成默认带上高级查询---------- -->
+   /**
+    * 新增事件
+    */
+  function handleAdd() {
+     openModal(true, {
+       isUpdate: false,
+       showFooter: true,
+     });
+  }
+   /**
+    * 编辑事件
+    */
+  function handleEdit(record: Recordable) {
+     openModal(true, {
+       record,
+       isUpdate: true,
+       showFooter: true,
+     });
+   }
+   /**
+    * 详情
+   */
+  function handleDetail(record: Recordable) {
+     openModal(true, {
+       record,
+       isUpdate: true,
+       showFooter: false,
+     });
+   }
+   /**
+    * 删除事件
+    */
+  async function handleDelete(record) {
+     await deleteOne({id: record.id}, handleSuccess);
+   }
+   /**
+    * 批量删除事件
+    */
+  async function batchHandleDelete() {
+     await batchDelete({ids: selectedRowKeys.value}, handleSuccess);
+   }
+   /**
+    * 成功回调
+    */
+  function handleSuccess() {
+      (selectedRowKeys.value = []) && reload();
+   }
+   /**
+      * 操作栏
+      */
+  function getTableAction(record){
+       return [
+         {
+           label: '编辑',
+           onClick: handleEdit.bind(null, record),
+           auth: '${entityPackage}:${tableName}:edit'
+         }
+       ]
+   }
+
+  <#if bpm_flag==true>
+  /**
+   * 提交流程
+   */
+  async function handleProcess(record) {
+    let params = {
+      flowCode: 'dev_${tableName}_001',
+      id: record.id,
+      formUrl: '${entityPackagePath}/components/${entityName}Form',
+      formUrlMobile: ''
+    }
+    await startProcess(params);
+    handleSuccess();
+  }
+
+ /**
+   * 审批进度
+   */
+  async function handlePreviewPic(record) {
+    bpmPicModal(true, {
+      flowCode: 'dev_${tableName}_001',
+      dataId: record.id,
+    });
+  }
+  </#if>
+
+  /**
+   * 下拉操作栏
+   */
+  function getDropDownAction(record){
+    <#if bpm_flag==true>
+    let dropDownAction = [
+      {
+        label: '详情',
+        onClick: handleDetail.bind(null, record),
+      }, {
+        label: '删除',
+        popConfirm: {
+          title: '是否确认删除',
+          confirm: handleDelete.bind(null, record),
+          placement: 'topLeft'
+        },
+        auth: '${entityPackage}:${tableName}:delete'
+      },
+        {
+          label: '审批进度',
+          onClick: handlePreviewPic.bind(null, record),
+          ifShow: !!record.bpmStatus && record.bpmStatus !== '1',
+        }
+ <#if buttonList?size gt 0>
+     <#list buttonList as btn>
+        <#if btn.buttonStyle == 'link'>
+        ,{
+           label: '${btn.buttonName}',
+           onClick: handle${btn.buttonCode?cap_first}.bind(null, record),
+         }
+        </#if>
+      </#list>
+  </#if>
+    ];
+    if(record.bpmStatus == '1' || !record.bpmStatus){
+      dropDownAction.push({
+        label: '发起流程',
+        popConfirm: {
+          title: '确认提交流程吗？',
+          confirm: handleProcess.bind(null, record),
+          placement: 'topLeft',
+        }
+      })
+    }
+    return dropDownAction;
+    <#else>
+    return [
+      {
+        label: '详情',
+        onClick: handleDetail.bind(null, record),
+      }, {
+        label: '删除',
+        popConfirm: {
+          title: '是否确认删除',
+          confirm: handleDelete.bind(null, record),
+          placement: 'topLeft'
+        },
+        auth: '${entityPackage}:${tableName}:delete'
+      }
+<#if buttonList?size gt 0>
+   <#list buttonList as btn>
+      <#if btn.buttonStyle == 'link'>
+      ,{
+         label: '${btn.buttonName}',
+         onClick: handle${btn.buttonCode?cap_first}.bind(null, record),
+       }
+      </#if>
+    </#list>
+</#if>
+    ]
+    </#if>
+  }
+
+    <#if list_need_category>
+   /**
+    * 初始化字典配置
+   */
+    function initDictConfig(){
+     <#list columns as po>
+     <#if (po.isQuery=='Y' || po.isShowList=='Y') && po.classType!='popup'>
+       <#if po.classType=='cat_tree' && list_need_category==true>
+       loadCategoryData({code:'${po.dictField?default("")}'}).then((res) => {
+         if (res) {
+           const allDictDate = userStore.getAllDictItems;
+           if(!allDictDate['${po.dictField?default("")}']){
+             userStore.setAllDictItems({...allDictDate,'${po.dictField?default("")}':res});
+           }
+         }
+       })
+       </#if>
+     </#if>
+     </#list>
+   }
+   initDictConfig();
+    </#if>
+
+    <#if list_has_popup_dict>
+   /**
+    * 翻译Popup字典配置
+   */
+    async function afterFetch(records){
+ <#list columns as po>
+    <#if po.isQuery=='Y' || po.isShowList=='Y'>
+      <#if po.classType=='popup_dict' && list_has_popup_dict==true>
+      const ${po.fieldName}Keys = [...new Set(records.map((item) => item['${po.fieldName}']).flatMap((item) => item && item.split(',')))];
+      if(${po.fieldName}Keys && ${po.fieldName}Keys.length){
+       const dictOptions = await getPopDictByCode(${po.fieldName}Keys.join(','), '${po.dictTable},${po.dictField},${po.dictText}');
+       records.forEach((item) => {
+         item['${po.fieldName}_dictText'] = filterMultiDictText(dictOptions, item['${po.fieldName}']);
+       });
+      }
+      </#if>
+    </#if>
+ </#list>
+     return records;
+   }
+    </#if>
+
+<#if buttonList?size gt 0>
+  <#list buttonList as btn>
+  <#if btn.buttonStyle=='button'>
+     function handle${btn.buttonCode?cap_first}(){
+        createMessage.info('点击了${btn.buttonName}按钮，对应的业务逻辑需自行实现!');
+     }
+  </#if>
+   <#if btn.buttonStyle=='link'>
+    function handle${btn.buttonCode?cap_first}(record){
+      createMessage.info('点击了${btn.buttonName}按钮，对应的业务逻辑需自行实现!');
+    }
+   </#if>
+  </#list>
+</#if>
+</script>
+
+<style lang="less" scoped>
+<#include "/common/form/vue3SearchStyle.ftl">
+</style>

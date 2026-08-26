@@ -22,6 +22,7 @@ import org.jeecg.modules.base.service.BaseCommonService;
 import org.jeecg.modules.demo.zbu.entity.*;
 import org.jeecg.modules.demo.zbu.service.*;
 import org.jeecg.modules.demo.zbu.vo.ImportErrorExportUtil;
+import org.jeecg.modules.demo.zbu.util.SemesterUtil;
 import org.springframework.beans.factory.annotation.Value;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
@@ -1274,9 +1275,7 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 				subscription.setMajorId(selection.getMajorId()); // 专业ID
 				subscription.setSubscriptionYear(selection.getSchoolYear()); // 征订学年
 				// 统一学期格式为字典码
-					String semester = selection.getSemester() != null ? selection.getSemester().trim() : "";
-					if ("第一学期".equals(semester) || "一".equals(semester)) semester = "1";
-					else if ("第二学期".equals(semester) || "二".equals(semester)) semester = "2";
+					String semester = SemesterUtil.normalizeCode(selection.getSemester() != null ? selection.getSemester().trim() : "");
 				subscription.setSubscriptionSemester(semester); // 征订学期
 				subscription.setSubscribeStatus("0"); // 初始征订状态（未征订）
 				subscription.setRemark("");
@@ -1360,9 +1359,7 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 				subscription.setMajorId(selection.getMajorId());
 				subscription.setSubscriptionYear(selection.getSchoolYear());
 				// 统一学期格式为字典码
-					String semester = selection.getSemester() != null ? selection.getSemester().trim() : "";
-					if ("第一学期".equals(semester) || "一".equals(semester)) semester = "1";
-					else if ("第二学期".equals(semester) || "二".equals(semester)) semester = "2";
+					String semester = SemesterUtil.normalizeCode(selection.getSemester() != null ? selection.getSemester().trim() : "");
 				subscription.setSubscriptionSemester(semester);
 				subscription.setSubscribeStatus("0"); // 初始征订状态（未征订）
 				subscription.setRemark("");
