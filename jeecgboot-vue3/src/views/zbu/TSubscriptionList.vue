@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div>
     <BasicTable
       @register="registerTable"
@@ -36,6 +36,7 @@
             <a-button type="primary" v-auth="'zbu:t_subscription:add'" @click="handleAdd" preIcon="ant-design:plus-outlined"> 新增</a-button>
           </template>
           <a-button  type="primary" v-auth="'zbu:t_subscription:exportXls'" preIcon="ant-design:export-outlined" @click="onExportXls"> 导出</a-button>
+          <a-button v-if="isAdmin" type="primary" :loading="marking" :disabled="marking" preIcon="ant-design:check-circle-outlined" @click="handleMarkAllSubscribed"> 标记为已征订</a-button>
           <!--          <j-upload-button type="primary" v-auth="'zbu:t_subscription:importExcel'" preIcon="ant-design:import-outlined" @click="onImportXls">导入</j-upload-button>-->
           <a-dropdown v-if="selectedRowKeys.length > 0">
             <template #overlay>
@@ -99,7 +100,7 @@ import {columns, searchFormSchema, superQuerySchema} from './TSubscription.data'
 import {
   deleteOne, batchDelete, getImportUrl, getExportUrl, getMySubscription,
   getStudentById, getTextbookById, getMajorById, getCollegeById, batchUpdateSubscribeStatus,
-  getStudentByNo
+  getStudentByNo, markAllSubscribed
 } from './TSubscription.api';
 import { downloadFile } from '/jeecgboot-vue3/src/utils/common/renderUtils';
 import { useUserStore } from '/@/store/modules/user';
@@ -109,7 +110,7 @@ import { getDateByPicker } from '/@/utils';
 type Recordable = { [key: string]: any };
 const fieldPickers = reactive({});
 const queryParam = reactive<any>({});
-const { createMessage } = useMessage();
+const { createMessage, createConfirm } = useMessage();
 
 const getSubscribeStatusText = (status: string) => {
   if (status === '1') return '已征订';
@@ -415,6 +416,43 @@ const handleBatchUpdateSubscribeStatus = async () => {
     }
   } finally {
     subscribing.value = false;
+  }
+};
+
+// ========== 管理员：按当前查询条件全部标记为已征订（解决跨页全选性能问题） ==========
+const marking = ref(false);
+const handleMarkAllSubscribed = async () => {
+  try {
+    // 1. dryRun：仅获取当前查询条件下未征订记录数量
+    const res: any = await markAllSubscribed({ ...queryParam, dryRun: true });
+    const count = Number(res?.count ?? 0);
+    if (!count) {
+      createMessage.info("当前查询条件下没有需要标记的未征订记录！");
+      return;
+    }
+    // 2. 二次确认（展示实际影响数量，防误操作）
+    createConfirm({
+      iconType: 'warning',
+      title: '确认全部标记为已征订',
+      content: `当前查询条件下共有 ${count} 条未征订记录，确认全部标记为已征订？将同时创建对应领取记录并同步个人账单状态。`,
+      okText: '确认标记',
+      cancelText: '取消',
+      onOk: async () => {
+        if (marking.value) return;
+        marking.value = true;
+        try {
+          // 3. 执行标记（后端分批处理全部数据）
+          const res2: any = await markAllSubscribed({ ...queryParam, dryRun: false });
+          createMessage.success(`标记完成：共标记 ${res2?.marked || 0} 条征订记录，新建领取记录 ${res2?.receiveCreated || 0} 条，同步个人账单 ${res2?.billUpdated || 0} 条`);
+          reload();
+        } finally {
+          marking.value = false;
+        }
+      }
+    });
+  } catch (e: any) {
+    console.error('【按查询条件标记为已征订失败】：', e);
+    createMessage.error(e?.msg || e?.message || '操作失败，请重试！');
   }
 };
 

@@ -989,14 +989,11 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 			if (!validStudentList.isEmpty()) {
 				tStudentService.saveBatch(validStudentList);
 
-				// 7. 为每个成功导入的学生生成征订记录
-				for (TStudent student : validStudentList) {
-					try {
-						generateStudentSubscription(student);
-					} catch (Exception e) {
-						log.warn("学生{}（学号：{}）生成征订记录失败：{}",
-								student.getStudentName(), student.getStudentId(), e.getMessage());
-					}
+				// 7. 批量生成征订记录（失败仅告警，不阻断导入成功返回）
+				try {
+					batchGenerateSubscriptions(validStudentList);
+				} catch (Exception e) {
+					log.warn("批量生成征订记录失败：{}", e.getMessage());
 				}
 			}
 
@@ -1374,6 +1371,133 @@ public class TStudentController extends JeecgController<TStudent, ITStudentServi
 			log.error("为学生{}生成当前学年当前学期征订记录失败", student.getStudentId(), e);
 			throw new RuntimeException("转专业/班级成功，但生成当前学年当前学期征订记录失败：" + e.getMessage());
 		}
+	}
+
+	/**
+	 * 批量生成征订记录（导入学生专用，批量查询教材选用 + 批量插入征订，替代逐学生循环，显著提速）
+	 * 逻辑与单条 {@link #generateStudentSubscription(TStudent)} 完全一致：
+	 *   1) 按学生班级查生效(status='1')教材选用；
+	 *   2) 防重键 = 学生ID + 教材ID + 征订学年；
+	 *   3) 生成征订记录，征订状态初始为'0'（未征订）。
+	 *
+	 * @param studentList 已通过 saveBatch 保存入库且主键ID已填充的学生列表
+	 */
+	private void batchGenerateSubscriptions(List<TStudent> studentList) {
+		if (studentList == null || studentList.isEmpty()) {
+			return;
+		}
+
+		// 1. 仅处理有班级且有主键ID的学生（无班级与单条逻辑一致：跳过征订记录生成）
+		List<TStudent> studentsWithClass = studentList.stream()
+				.filter(s -> s != null && oConvertUtils.isNotEmpty(s.getClassId()) && oConvertUtils.isNotEmpty(s.getId()))
+				.collect(Collectors.toList());
+		if (studentsWithClass.isEmpty()) {
+			return;
+		}
+
+		// 2. 取班级ID集合（去重），并批量查询这些班级的有效教材选用（selection_status='1'）
+		List<String> classIds = studentsWithClass.stream()
+				.map(TStudent::getClassId)
+				.distinct()
+				.collect(Collectors.toList());
+		Map<String, List<TTextbookSelection>> selectionMap = new HashMap<>();
+		for (List<String> batch : partition(classIds, 1000)) {
+			List<TTextbookSelection> selections = tTextbookSelectionService.list(
+					new LambdaQueryWrapper<TTextbookSelection>()
+							.in(TTextbookSelection::getClassId, batch)
+							.eq(TTextbookSelection::getSelectionStatus, "1"));
+			for (TTextbookSelection selection : selections) {
+				selectionMap.computeIfAbsent(selection.getClassId(), k -> new ArrayList<>()).add(selection);
+			}
+		}
+		if (selectionMap.isEmpty()) {
+			log.info("批量生成征订记录：导入的{}名学生所在班级均无有效教材选用记录，跳过", studentsWithClass.size());
+			return;
+		}
+
+		// 3. 批量查询这些学生已有的征订记录，构建防重键集合（学生ID+教材ID+征订学年，与单条逻辑一致）
+		List<String> studentIds = studentsWithClass.stream()
+				.map(TStudent::getId)
+				.collect(Collectors.toList());
+		Set<String> existingKeys = new HashSet<>();
+		for (List<String> batch : partition(studentIds, 1000)) {
+			List<TSubscription> existSubs = tSubscriptionService.list(
+					new LambdaQueryWrapper<TSubscription>().in(TSubscription::getStudentId, batch));
+			for (TSubscription sub : existSubs) {
+				existingKeys.add(buildDedupKey(sub.getStudentId(), sub.getTextbookId(), sub.getSubscriptionYear()));
+			}
+		}
+
+		// 4. 内存遍历组装待插入征订记录（不再逐条查询/写入数据库）
+		Date now = new Date();
+		List<TSubscription> toInsert = new ArrayList<>();
+		int skipCount = 0;
+		int noTextbookCount = 0;
+		for (TStudent student : studentsWithClass) {
+			List<TTextbookSelection> selections = selectionMap.get(student.getClassId());
+			if (selections == null || selections.isEmpty()) {
+				continue;
+			}
+			for (TTextbookSelection selection : selections) {
+				// 防御：选用记录无教材时无法入库（该字段NOT NULL），跳过并告警，不影响其余记录
+				if (oConvertUtils.isEmpty(selection.getTextbookId())) {
+					noTextbookCount++;
+					continue;
+				}
+				String dedupKey = buildDedupKey(student.getId(), selection.getTextbookId(), selection.getSchoolYear());
+				if (existingKeys.contains(dedupKey)) {
+					skipCount++;
+					continue;
+				}
+				// 防重：把本批次已组装的键也计入集合（对齐原单条逻辑：插入后count可见，同学年同学期重复选用只保留一条）
+				existingKeys.add(dedupKey);
+				TSubscription subscription = new TSubscription();
+				subscription.setStudentId(student.getId()); // 学生主键ID
+				subscription.setTextbookId(selection.getTextbookId()); // 教材ID
+				subscription.setSelectionId(selection.getId()); // 关联教材选用记录ID
+				subscription.setMajorId(selection.getMajorId()); // 专业ID
+				subscription.setSubscriptionYear(selection.getSchoolYear()); // 征订学年
+				// 统一学期格式为字典码
+				String semester = SemesterUtil.normalizeCode(selection.getSemester() != null ? selection.getSemester().trim() : "");
+				subscription.setSubscriptionSemester(semester); // 征订学期
+				subscription.setSubscribeStatus("0"); // 初始征订状态（未征订）
+				subscription.setRemark("");
+				subscription.setCreateTime(now);
+				subscription.setUpdateTime(now);
+				toInsert.add(subscription);
+			}
+		}
+
+		// 5. 批量插入征订记录（MyBatis-Plus按1000/批自动拆分）
+		if (toInsert.isEmpty()) {
+			log.info("批量生成征订记录：无新增记录（班级无有效选用或均已被占用），学生{}名，跳过已存在{}条",
+					studentsWithClass.size(), skipCount);
+			return;
+		}
+		tSubscriptionService.saveBatch(toInsert);
+		log.info("批量生成征订记录完成：处理学生{}名，新生成征订记录{}条，跳过已存在{}条，跳过无教材选用{}条",
+				studentsWithClass.size(), toInsert.size(), skipCount, noTextbookCount);
+	}
+
+	/**
+	 * 构建征订记录防重键：学生ID + 教材ID + 征订学年（与单条逻辑的防重查询条件一致）
+	 */
+	private String buildDedupKey(String studentId, String textbookId, String subscriptionYear) {
+		return studentId + "::" + textbookId + "::" + (subscriptionYear == null ? "" : subscriptionYear);
+	}
+
+	/**
+	 * 将列表按指定大小分片（避免IN子句参数过多）
+	 */
+	private <T> List<List<T>> partition(List<T> source, int size) {
+		List<List<T>> result = new ArrayList<>();
+		if (source == null || source.isEmpty() || size <= 0) {
+			return result;
+		}
+		for (int i = 0; i < source.size(); i += size) {
+			result.add(source.subList(i, Math.min(i + size, source.size())));
+		}
+		return result;
 	}
 
 	/**

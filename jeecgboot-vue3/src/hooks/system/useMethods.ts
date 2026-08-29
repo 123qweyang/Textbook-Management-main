@@ -23,7 +23,7 @@ export function useMethods() {
    * @param isXlsx
    * @param timeout 超时时间（毫秒），默认 60000
    */
-  async function exportXls(name, url, params, isXlsx = false, timeout = 60000) {
+  async function exportXls(name, url, params, isXlsx = false, timeout = 900000) {
     // 修改为返回原生 response，便于获取 headers
     const response = await defHttp.get(
       { url: url, params: params, responseType: 'blob', timeout: timeout },
@@ -78,7 +78,9 @@ export function useMethods() {
           const msg = fileInfo.result?.msg || fileInfo.message || '导入出现错误';
           const fileUrl = fileInfo.result?.fileUrl;
           const fileName = fileInfo.result?.fileName;
-          const href = fileUrl ? glob.uploadUrl + fileUrl : '';
+          // uploadUrl 可能为空（webvpn 相对路径场景），兜底用 /jeecgboot 前缀，
+          // 避免下载地址落成 /sys/common/static/... 被 nginx 当 SPA 路由回退成 HTML
+          const href = fileUrl ? (glob.uploadUrl || '/jeecgboot') + fileUrl : '';
 
           if (href && fileName) {
             // 有错误文件可下载：弹窗+自动下载

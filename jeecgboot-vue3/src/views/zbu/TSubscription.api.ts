@@ -18,6 +18,7 @@ enum Api {
   getMajorById = '/zbu/tMajor/queryById',       // 查专业
   getCollegeById = '/zbu/tCollege/queryById',   // 查学院
   batchUpdateSubscribeStatus = '/zbu/tSubscription/batchUpdateSubscribeStatus',
+  markAllSubscribed = '/zbu/tSubscription/markAllSubscribed',
   getCurrentSchoolYear = '/zbu/studentBill/getCurrentSchoolYear', // 获取当前学年
 }
 /**
@@ -96,6 +97,14 @@ export const getMajorById = (majorId) =>
  */
 export const batchUpdateSubscribeStatus = (params: any) => {
   return defHttp.post({url: Api.batchUpdateSubscribeStatus, params});
+};
+
+/**
+ * 管理员：按当前查询条件将全部未征订记录标记为已征订
+ * @param params {筛选参数..., dryRun: boolean} dryRun=true仅返回数量，false执行标记
+ */
+export const markAllSubscribed = (params: any) => {
+  return defHttp.post({url: Api.markAllSubscribed, params});
 };
 
 

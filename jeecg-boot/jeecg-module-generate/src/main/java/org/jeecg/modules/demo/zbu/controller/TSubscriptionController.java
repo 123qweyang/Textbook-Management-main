@@ -1059,6 +1059,263 @@ public class TSubscriptionController extends JeecgController<TSubscription, ITSu
 	}
 
 	/**
+	 * 管理员专用：按当前查询条件将全部未征订记录批量标记为已征订
+	 * 解决跨页全选性能问题：勾选版只能操作当前页选中行，本接口按查询条件直接全量处理
+	 *
+	 * 筛选参数与 getMySubscription 完全一致，保证与列表页"当前查询条件"语义相同
+	 * dryRun=true：仅返回符合条件的未征订数量（前端二次确认用）
+	 * dryRun=false：执行标记，联动逻辑与 batchUpdateSubscribeStatus 一致：
+	 *   1) 征订表 subscribe_status='1' + subscribe_time + update_time
+	 *   2) 为未生成领取记录的征订创建领取记录（按 subscription_id 防重）
+	 *   3) 同步个人账单的征订状态（账单不存在的跳过）
+	 *
+	 * @param params 筛选参数（subscriptionYear/subscriptionSemester/subscribeStatus/studentIdPrefix/studentId/collegeName/majorName/className）+ dryRun
+	 * @return dryRun时返回{count}；执行时返回{marked, receiveCreated, billUpdated}
+	 */
+	@Transactional(rollbackFor = Exception.class)
+	@AutoLog(value = "征订表-按查询条件全部标记为已征订")
+	@Operation(summary = "按查询条件全部标记为已征订", description = "仅管理员可用")
+	@PostMapping(value = "/markAllSubscribed")
+	public Result<Map<String, Object>> markAllSubscribed(@RequestBody Map<String, Object> params) {
+		try {
+			// 1. 仅管理员可用（辅导员/学生端不提供此功能）
+			Subject subject = SecurityUtils.getSubject();
+			LoginUser loginUser = (LoginUser) (subject != null ? subject.getPrincipal() : null);
+			if (loginUser == null) {
+				return Result.error("未获取到当前登录用户信息");
+			}
+			boolean isAdmin = false;
+			String roleCodeStr = loginUser.getRoleCode();
+			if (roleCodeStr != null && !roleCodeStr.isEmpty()) {
+				for (String code : roleCodeStr.split(",")) {
+					if ("admin".equals(code.trim())) {
+						isAdmin = true;
+						break;
+					}
+				}
+			}
+			if (!isAdmin && ("admin".equals(loginUser.getUsername()) || "sysadmin".equals(loginUser.getUsername()))) {
+				isAdmin = true;
+			}
+			if (!isAdmin) {
+				log.warn("用户{}尝试使用按查询条件全部标记功能（仅管理员可用）", loginUser.getUsername());
+				return Result.error("仅管理员可执行此操作！");
+			}
+
+			// 2. 解析筛选参数（参数名与 getMySubscription 保持一致）
+			String subscriptionYear = strParam(params, "subscriptionYear");
+			String subscriptionSemester = strParam(params, "subscriptionSemester");
+			String subscribeStatus = strParam(params, "subscribeStatus");
+			String studentIdPrefix = strParam(params, "studentIdPrefix");
+			String studentId = strParam(params, "studentId");
+			String collegeName = strParam(params, "collegeName");
+			String majorName = strParam(params, "majorName");
+			String className = strParam(params, "className");
+			boolean dryRun = Boolean.parseBoolean(String.valueOf(params.getOrDefault("dryRun", "true")));
+
+			// 3. 构建筛选条件（条件拼接与 getMySubscription 一致，值做单引号转义防注入）
+			StringBuilder filterSql = new StringBuilder();
+			if (oConvertUtils.isNotEmpty(subscriptionYear)) {
+				filterSql.append(" AND s.subscription_year = '").append(escapeSql(subscriptionYear)).append("'");
+			}
+			if (oConvertUtils.isNotEmpty(subscriptionSemester)) {
+				filterSql.append(" AND s.subscription_semester = '").append(escapeSql(subscriptionSemester)).append("'");
+			}
+			if (oConvertUtils.isNotEmpty(subscribeStatus)) {
+				filterSql.append(" AND s.subscribe_status = '").append(escapeSql(subscribeStatus)).append("'");
+			}
+			if (oConvertUtils.isNotEmpty(studentIdPrefix)) {
+				filterSql.append(" AND st.student_id LIKE '").append(escapeSql(studentIdPrefix.trim())).append("%'");
+			}
+			if (oConvertUtils.isNotEmpty(studentId)) {
+				String key = escapeSql(studentId.trim());
+				filterSql.append(" AND (st.student_id LIKE '%").append(key).append("%' OR st.student_name LIKE '%").append(key).append("%')");
+			}
+			if (oConvertUtils.isNotEmpty(collegeName)) {
+				filterSql.append(" AND c.college_name LIKE '%").append(escapeSql(collegeName.trim())).append("%'");
+			}
+			if (oConvertUtils.isNotEmpty(majorName)) {
+				filterSql.append(" AND m.major_name LIKE '%").append(escapeSql(majorName.trim())).append("%'");
+			}
+			if (oConvertUtils.isNotEmpty(className)) {
+				filterSql.append(" AND cl.class_name LIKE '%").append(escapeSql(className.trim())).append("%'");
+			}
+
+			// 4. 基础SQL（JOIN结构与 getMySubscription 完全一致；仅处理未征订记录，NULL视为未征订）
+			String baseFrom = " FROM t_subscription s"
+				+ " LEFT JOIN t_student st ON s.student_id = st.id"
+				+ " LEFT JOIN t_textbook tb ON s.textbook_id = tb.id"
+				+ " LEFT JOIN t_major m ON s.major_id = m.id"
+				+ " LEFT JOIN t_college c ON m.college_id = c.id"
+				+ " LEFT JOIN t_class cl ON st.class_id = cl.id"
+				+ " WHERE 1=1" + filterSql.toString()
+				+ " AND (s.subscribe_status IS NULL OR s.subscribe_status <> '1')";
+
+			// 5. 统计符合条件的未征订数量
+			long count = jdbcTemplate.queryForObject("SELECT COUNT(*)" + baseFrom, Long.class);
+			Map<String, Object> result = new HashMap<>();
+			if (dryRun) {
+				result.put("count", count);
+				return Result.OK(result);
+			}
+			if (count == 0) {
+				result.put("marked", 0L);
+				result.put("receiveCreated", 0L);
+				result.put("billUpdated", 0L);
+				return Result.OK(result);
+			}
+			log.info("管理员{}开始按查询条件批量标记为已征订：符合条件的未征订记录共{}条，筛选条件：{}",
+					loginUser.getUsername(), count, filterSql);
+
+			// 6. 游标分批处理（按主键游标翻页，避免OFFSET深分页）
+			Date now = new Date();
+			int batchSize = 1000;
+			String lastId = null;
+			long marked = 0;
+			long receiveCreated = 0;
+			long billUpdated = 0;
+			Map<String, String> majorCollegeNameCache = new HashMap<>(); // 专业ID->学院名缓存（创建领取记录用）
+			String dataSql = "SELECT s.id, s.student_id, s.textbook_id, s.major_id, s.subscription_year, s.subscription_semester" + baseFrom;
+
+			while (true) {
+				String pageSql = dataSql + (lastId == null ? "" : " AND s.id > '" + lastId + "'")
+					+ " ORDER BY s.id ASC LIMIT " + batchSize;
+				List<Map<String, Object>> batch = jdbcTemplate.queryForList(pageSql);
+				if (batch.isEmpty()) {
+					break;
+				}
+				lastId = str(batch.get(batch.size() - 1).get("id"));
+				List<String> batchIds = batch.stream().map(r -> str(r.get("id"))).collect(Collectors.toList());
+
+				// 6.1 批量更新征订状态（置'1' + 征订操作时间 + 更新时间）
+				List<TSubscription> updateList = new ArrayList<>();
+				for (String id : batchIds) {
+					TSubscription subscription = new TSubscription();
+					subscription.setId(id);
+					subscription.setSubscribeStatus("1");
+					subscription.setSubscribeTime(now);
+					subscription.setUpdateTime(now);
+					updateList.add(subscription);
+				}
+				tSubscriptionService.updateBatchById(updateList);
+				marked += batchIds.size();
+
+				// 6.2 批量补建领取记录（按 subscription_id 防重，字段逻辑与 batchUpdateSubscribeStatus 一致）
+				Set<String> existReceiveSubIds = new HashSet<>();
+				List<TReceive> existReceives = tReceiveService.list(new QueryWrapper<TReceive>()
+					.select("subscription_id").in("subscription_id", batchIds));
+				for (TReceive r : existReceives) {
+					existReceiveSubIds.add(r.getSubscriptionId());
+				}
+				List<TReceive> receiveToCreate = new ArrayList<>();
+				for (Map<String, Object> row : batch) {
+					String subId = str(row.get("id"));
+					if (existReceiveSubIds.contains(subId)) {
+						continue;
+					}
+					TReceive receive = new TReceive();
+					receive.setReceiveOperator(str(row.get("student_id"))); // 学生主键ID
+					receive.setSubscriptionId(subId);
+					receive.setReceiveStatus("未领取");
+					receive.setReceiveRemark("");
+					receive.setCreateTime(now);
+					receive.setUpdateTime(now);
+					// 学院名：专业->学院查询（带缓存）
+					String majorId = str(row.get("major_id"));
+					if (oConvertUtils.isNotEmpty(majorId)) {
+						String collegeNameForReceive = majorCollegeNameCache.computeIfAbsent(majorId, k -> {
+							TMajor major = tMajorService.getById(k);
+							if (major == null) {
+								return "";
+							}
+							TCollege college = tCollegeService.getById(major.getCollegeId());
+							return college != null ? college.getCollegeName() : "";
+						});
+						if (oConvertUtils.isNotEmpty(collegeNameForReceive)) {
+							receive.setCollegeName(collegeNameForReceive);
+						}
+					}
+					// 注：subscriptionYear/Semester为虚拟字段（@TableField(exist=false)），set不落库，仅为对齐现有单条逻辑
+					receive.setSubscriptionYear(str(row.get("subscription_year")));
+					receive.setSubscriptionSemester(str(row.get("subscription_semester")));
+					receiveToCreate.add(receive);
+				}
+				if (!receiveToCreate.isEmpty()) {
+					tReceiveService.saveBatch(receiveToCreate);
+					receiveCreated += receiveToCreate.size();
+				}
+
+				// 6.3 同步个人账单征订状态（按 学号+学年+学期+教材名 匹配，账单不存在的跳过）
+				List<String> studentPks = batch.stream().map(r -> str(r.get("student_id"))).filter(s -> !s.isEmpty()).distinct().collect(Collectors.toList());
+				List<String> textbookIds = batch.stream().map(r -> str(r.get("textbook_id"))).filter(s -> !s.isEmpty()).distinct().collect(Collectors.toList());
+				Map<String, String> studentNoMap = studentPks.isEmpty() ? Collections.emptyMap()
+					: tStudentService.listByIds(studentPks).stream().collect(Collectors.toMap(TStudent::getId, s -> str(s.getStudentId()), (a, b) -> a));
+				Map<String, String> textbookNameMap = textbookIds.isEmpty() ? Collections.emptyMap()
+					: tTextbookService.listByIds(textbookIds).stream().collect(Collectors.toMap(TTextbook::getId, t -> str(t.getTextbookName()), (a, b) -> a));
+
+				String billUpdateSql = "UPDATE student_bill SET subscribe_status = '1', update_time = ? WHERE student_id = ? AND subscription_year = ? AND subscription_semester = ? AND textbook_name = ?";
+				List<Object[]> billArgs = new ArrayList<>();
+				Set<String> billKeys = new HashSet<>(); // 同批次内组合去重
+				for (Map<String, Object> row : batch) {
+					String studentNo = studentNoMap.get(str(row.get("student_id")));
+					String textbookName = textbookNameMap.get(str(row.get("textbook_id")));
+					if (oConvertUtils.isEmpty(studentNo) || oConvertUtils.isEmpty(textbookName)) {
+						continue;
+					}
+					String year = str(row.get("subscription_year"));
+					String semester = str(row.get("subscription_semester"));
+					String key = studentNo + "|" + year + "|" + semester + "|" + textbookName;
+					if (billKeys.add(key)) {
+						billArgs.add(new Object[]{now, studentNo, year, semester, textbookName});
+					}
+				}
+				if (!billArgs.isEmpty()) {
+					int[] updateCounts = jdbcTemplate.batchUpdate(billUpdateSql, billArgs);
+					for (int c : updateCounts) {
+						if (c > 0) {
+							billUpdated += c;
+						}
+					}
+				}
+
+				log.info("按查询条件标记为已征订进度：已处理{}/{}条", marked, count);
+				if (batch.size() < batchSize) {
+					break;
+				}
+			}
+
+			result.put("marked", marked);
+			result.put("receiveCreated", receiveCreated);
+			result.put("billUpdated", billUpdated);
+			log.info("管理员{}按查询条件批量标记完成：共标记{}条，创建领取记录{}条，同步个人账单{}条",
+					loginUser.getUsername(), marked, receiveCreated, billUpdated);
+			return Result.OK(result);
+		} catch (Exception e) {
+			log.error("按查询条件批量标记为已征订失败", e);
+			return Result.error("批量标记失败：" + e.getMessage());
+		}
+	}
+
+	/**
+	 * 从请求参数Map中安全取字符串（null或空串返回null）
+	 */
+	private String strParam(Map<String, Object> params, String key) {
+		Object v = params.get(key);
+		if (v == null) {
+			return null;
+		}
+		String s = String.valueOf(v).trim();
+		return s.isEmpty() ? null : s;
+	}
+
+	/**
+	 * SQL字符串单引号转义（防注入）
+	 */
+	private String escapeSql(String s) {
+		return s == null ? "" : s.replace("'", "''");
+	}
+
+	/**
 	 * 学生同意征订
 	 * 学生点击同意征订后，更新征订状态为"已确认"并创建领取记录
 	 *
