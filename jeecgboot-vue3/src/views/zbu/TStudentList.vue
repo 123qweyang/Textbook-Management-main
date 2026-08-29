@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div>
     <!--引用表格-->
    <BasicTable @register="registerTable" :rowSelection="rowSelection">
@@ -64,10 +64,12 @@ import { useMethods } from '/@/hooks/system/useMethods'
   const userStore = useUserStore();
   const { createMessage } = useMessage();
 
-  // 判断是否为管理员
+  // 判断是否为管理员（用户名为 admin/sysadmin，或角色编码包含 admin 均视为管理员）
   const isAdmin = computed(() => {
-    const userInfo = userStore.getUserInfo;
-    return userInfo && (userInfo.username === 'admin' || userInfo.username === 'sysadmin');
+    const userInfo = userStore.getUserInfo || {};
+    const username = (userInfo.username || '').toLowerCase().trim();
+    const roleCode = (userInfo.roleCode || '').toLowerCase().trim();
+    return ['admin', 'sysadmin'].includes(username) || roleCode.includes('admin');
   });
 
   //注册model

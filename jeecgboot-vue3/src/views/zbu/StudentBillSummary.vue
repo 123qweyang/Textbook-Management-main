@@ -66,6 +66,12 @@ const userStore = useUserStore();
 const {createMessage} = useMessage();
 
 const isAdmin = computed(() => {
+  // 用户名为 admin/sysadmin，或角色编码包含 admin 均视为管理员
+  const userInfo = userStore.getUserInfo || {};
+  const username = (userInfo.username || '').toLowerCase().trim();
+  if (['admin', 'sysadmin'].includes(username)) return true;
+  const roleCode = (userInfo.roleCode || '').toLowerCase().trim();
+  if (roleCode.includes('admin')) return true;
   const roles = userStore.getRoles || [];
   return roles.includes('admin') || roles.includes('sysadmin');
 });
